@@ -1,0 +1,11 @@
+logs/
+controller
+control/*.o
+control/build/
+control/legacy/
+control/sim/*.o
+control/runtime/*.o
+control/*.bak
+__pycache__/
+*.log
+*.png

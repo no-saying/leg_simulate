@@ -1,0 +1,255 @@
+/* config_manual.h - 手动驾驶 / 离线辨识 / 旧原点控制 参数
+ * 由 control_config.h 统一包含。 */
+#ifndef CONFIG_MANUAL_H
+#define CONFIG_MANUAL_H
+
+/* ==========================================================================
+ * 手动驾驶 (GUI WASD)
+ * ========================================================================== */
+
+#ifndef SIMPLE_MANUAL_V_MAX
+/* W/S 手动驾驶目标速度，单位 m/s。用户反馈偏慢，加大倾角提速。 */
+#define SIMPLE_MANUAL_V_MAX 1.20f
+#endif
+
+#ifndef SIMPLE_MANUAL_ACCEL
+/* 手动驾驶速度指令变化率上限，单位 m/s^2；斜坡化避免起步/刹停瞬间猛冲。 */
+#define SIMPLE_MANUAL_ACCEL 0.30f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_ACCEL
+/* 手动转向指令变化率上限，单位 rad/s^2。 */
+#define SIMPLE_MANUAL_YAW_ACCEL 2.5f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_RATE
+/* A/D 手动转向目标偏航角速度，单位 rad/s。用户反馈转向慢，提到 0.8。 */
+#define SIMPLE_MANUAL_YAW_RATE 0.80f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_MAX
+/* 手动转向差动扭矩上限，单位 Nm。俯仰保持的共模扭矩会占掉大部分轮上
+ * 力矩余量，2.5 推不动原地转(实测只有 ~3°/s)；12 才有明显转向。 */
+#define SIMPLE_MANUAL_YAW_MAX 12.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_RATE_KP
+/* 手动转向偏航角速度增益，单位 Nm/(rad/s)。 */
+#define SIMPLE_MANUAL_YAW_RATE_KP 5.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_SPEED_GATE
+/* 手动转向随前进速度衰减的窗口，单位 m/s；速度越高差动扭矩越柔，
+ * 防止高速行驶中打方向把俯仰/横滚掀翻。 */
+#define SIMPLE_MANUAL_YAW_SPEED_GATE 0.80f
+#endif
+
+#ifndef SIMPLE_MANUAL_TRACK_KP_SCALE
+/* 手动模式跟踪增益缩放: 虚拟目标持续移动，比静态回原点用更柔的跟踪增益，
+ * 避免追目标时过冲成高速漂移。 */
+#define SIMPLE_MANUAL_TRACK_KP_SCALE 0.65f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_KP
+/* 手动行驶反馈式中立角增益，单位 rad/(m/s)：速度误差 -> 目标俯仰。
+ * 车体保持小倾角巡航，速度由反馈自然收敛。 */
+#define SIMPLE_MANUAL_PITCH_KP 0.100f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_MAX
+/* 手动行驶目标俯仰上限，单位 rad(8.6°)。足够大的刹车倾角才能压住
+ * “后仰前栽”耦合，实现真正后退。 */
+#define SIMPLE_MANUAL_PITCH_MAX 0.150f
+#endif
+
+#ifndef SIMPLE_MANUAL_AWAY_GAIN
+/* 手动行驶超速时刹速增益倍率。 */
+#define SIMPLE_MANUAL_AWAY_GAIN 2.5f
+#endif
+
+#ifndef SIMPLE_MANUAL_AWAY_GAIN
+/* 手动模式“超速”刹速增益倍率，比自动回程更温和。 */
+#define SIMPLE_MANUAL_AWAY_GAIN 1.5f
+#endif
+
+#ifndef SIMPLE_MANUAL_AWAY_MAX
+/* 手动模式超速刹速目标俯仰上限，单位 rad。 */
+#define SIMPLE_MANUAL_AWAY_MAX 0.090f
+#endif
+
+#ifndef SIMPLE_MANUAL_HOMEBOUND_MAX
+/* 手动模式回程方向目标俯仰上限，单位 rad。 */
+#define SIMPLE_MANUAL_HOMEBOUND_MAX 0.090f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_BRAKE_V
+/* 手动模式速度刹车阈值，单位 m/s；超过后叠加反向俯仰限速，防高速侧翻。 */
+#define SIMPLE_MANUAL_SPEED_BRAKE_V 4.00f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_BRAKE_KP
+/* 手动模式速度刹车增益，单位 rad/(m/s)。 */
+#define SIMPLE_MANUAL_SPEED_BRAKE_KP 0.060f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_BRAKE_MAX
+/* 手动模式速度刹车目标俯仰叠加上限，单位 rad。 */
+#define SIMPLE_MANUAL_SPEED_BRAKE_MAX 0.050f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_CAP_ENABLE
+/* 手动模式输出层轮速限速开关。开启后手动行驶轮速超过阈值，
+ * 直接把共模轮扭矩覆写成刹车，不经过俯仰环，物理上必然刹得住。 */
+#define SIMPLE_MANUAL_SPEED_CAP_ENABLE 0
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_CAP_START
+/* 手动模式输出层限速阈值，单位 m/s。 */
+#define SIMPLE_MANUAL_SPEED_CAP_START 0.60f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_CAP_KP
+/* 手动模式输出层限速刹车增益，单位 Nm/(m/s)。 */
+#define SIMPLE_MANUAL_SPEED_CAP_KP 10.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_CAP_MAX
+/* 手动模式输出层限速刹车最大扭矩，单位 Nm。 */
+#define SIMPLE_MANUAL_SPEED_CAP_MAX 20.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_CAP_PITCH
+/* 手动输出层限速刹车只在 |pitch| 小于该值(rad)时介入；
+ * 大俯仰救车阶段不能覆写俯仰环，否则会前栽。 */
+#define SIMPLE_MANUAL_SPEED_CAP_PITCH 0.150f
+#endif
+
+#ifndef SIMPLE_MANUAL_STOP_KP
+/* 松手停车刹车增益，单位 rad/(m/s)；目标速度 0，纯速度刹停不追位置。
+ * 重轮下 0.1×body_v 在 0.8m/s 只给 4.6° 刹车倾角，压不住前进动量
+ * (实测松手后继续加速到 0.8m/s)，提高到 0.25 尽快顶到 10°。 */
+#define SIMPLE_MANUAL_STOP_KP 5.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_STOP_MAX
+/* 松手停车刹车目标俯仰上限，单位 rad。
+ * 重轮下 0.09 的刹车倾角压不住前进动量，松手后车反而继续加速，
+ * 与超速刹车一致提到 0.18(约10.3°)。 */
+#define SIMPLE_MANUAL_STOP_MAX 0.180f
+#endif
+
+#ifndef SIMPLE_MANUAL_STOP_V
+/* 松手停车完成判速，单位 m/s；低于该值后恢复自动保持。 */
+#define SIMPLE_MANUAL_STOP_V 0.06f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_GATE
+/* 手动行驶前倾角门控，单位 rad；实测俯仰超过该值时自动撤掉驱动指令，
+ * 让车先回正。限制的是姿态而不是速度。 */
+#define SIMPLE_MANUAL_PITCH_GATE 0.500f
+#endif
+
+#ifndef SIMPLE_MANUAL_NEUTRAL_SLEW
+/* 手动行驶目标俯仰变化率上限，单位 rad/s。
+ * 0.1 会给速度环加太多相位滞后，W 持续驱动时过冲成 1m/s+ 脉冲循环；
+ * 0.3 实测消除“前进→后退”振荡(10s W 零后退)，只剩启动/松手瞬态。 */
+#define SIMPLE_MANUAL_NEUTRAL_SLEW 0.300f
+#endif
+
+#ifndef SIMPLE_MANUAL_WS_KP
+/* 手动行驶直接轮速反馈增益，单位 Nm/(m/s)。
+ * 手动 W/S 不走“倾角指令”链路(重轮下会过冲成 1m/s+ 脉冲循环)，
+ * 而是把轮速误差直接叠加到扭矩: tau -= K*(body_v - manual_v)。
+ * 俯仰环只负责站直，速度由该轮速环收敛，W/S 对称且天然限速。 */
+#define SIMPLE_MANUAL_WS_KP 8.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPEED_KI
+/* 手动 W/S 速度误差积分增益，单位 rad/(m)。
+ * 纯比例速度环巡航有静差(实测 0.35 目标跑到 0.5m/s)，
+ * 加慢积分把稳态速度拉到目标。 */
+#define SIMPLE_MANUAL_SPEED_KI 0.060f
+#endif
+
+#ifndef SIMPLE_NEUTRAL_TAU
+/* 目标俯仰角参考一阶低通时间常数，单位 s；越小目标俯仰响应越快，
+ * 但太小可能激发俯仰环。0.12s 经扫描验证能同时压低接近零点速度和尾部幅度。 */
+#define SIMPLE_NEUTRAL_TAU 0.120f
+#endif
+
+
+/* ==========================================================================
+ * 离线辨识注入
+ * ========================================================================== */
+
+#ifndef SIMPLE_IDENT_NEUTRAL_ENABLE
+/* 目标俯仰角方波注入开关。正常运行必须为 0，只在辨识速度响应时打开。 */
+#define SIMPLE_IDENT_NEUTRAL_ENABLE 0
+#endif
+
+#ifndef SIMPLE_IDENT_NEUTRAL_START
+/* 方波注入开始时间，单位 s。 */
+#define SIMPLE_IDENT_NEUTRAL_START 2.0f
+#endif
+
+#ifndef SIMPLE_IDENT_NEUTRAL_AMP
+/* 方波目标俯仰角幅值，单位 rad。 */
+#define SIMPLE_IDENT_NEUTRAL_AMP 0.020f
+#endif
+
+#ifndef SIMPLE_IDENT_NEUTRAL_PERIOD
+/* 方波周期，单位 s。 */
+#define SIMPLE_IDENT_NEUTRAL_PERIOD 2.0f
+#endif
+
+
+/* ==========================================================================
+ * 旧版直接原点控制和腿摆辅助
+ * ========================================================================== */
+
+#ifndef SIMPLE_ORIGIN_PITCH_KP
+/* 旧版位置误差直接映射目标俯仰角的 P 增益；速度规划关闭时使用。 */
+#define SIMPLE_ORIGIN_PITCH_KP 0.040f
+#endif
+
+#ifndef SIMPLE_ORIGIN_SIGN
+/* 旧版原点控制符号。若关闭速度规划后回原点方向反掉，先查它。 */
+#define SIMPLE_ORIGIN_SIGN -1.0f
+#endif
+
+#ifndef SIMPLE_ORIGIN_PITCH_KD
+/* 旧版速度阻尼到目标俯仰角的 D 增益。 */
+#define SIMPLE_ORIGIN_PITCH_KD 0.000f
+#endif
+
+#ifndef SIMPLE_ORIGIN_PITCH_KI
+/* 旧版位置积分到目标俯仰角的 I 增益。 */
+#define SIMPLE_ORIGIN_PITCH_KI 0.003f
+#endif
+
+#ifndef SIMPLE_ORIGIN_PITCH_MAX
+/* 旧版目标俯仰角限幅，单位 rad。 */
+#define SIMPLE_ORIGIN_PITCH_MAX 0.040f
+#endif
+
+#ifndef SIMPLE_ORIGIN_ACTIVE_PITCH_RAD
+/* 只有 |pitch| 小于该值时允许原点控制介入，单位 rad。 */
+#define SIMPLE_ORIGIN_ACTIVE_PITCH_RAD 0.280f
+#endif
+
+#ifndef SIMPLE_ORIGIN_LEG_KP
+/* 旧版腿摆辅助回原点 P 增益；当前为 0，避免腿部动作污染辨识。 */
+#define SIMPLE_ORIGIN_LEG_KP 0.0f
+#endif
+
+#ifndef SIMPLE_ORIGIN_LEG_KD
+/* 旧版腿摆辅助速度阻尼增益。 */
+#define SIMPLE_ORIGIN_LEG_KD 0.0f
+#endif
+
+#ifndef SIMPLE_ORIGIN_LEG_MAX
+/* 旧版腿摆辅助最大偏置，单位 rad；当前为 0 表示关闭。 */
+#define SIMPLE_ORIGIN_LEG_MAX 0.0f
+#endif
+
+#endif
