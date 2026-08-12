@@ -101,9 +101,23 @@
     int slip_pb = (!airborne_pb && !impact_pb && abs_wheel_pb > 0.80f &&
                    g_balance.wheel_imu_res_dbg > SIMPLE_SLIP_RESIDUAL &&
                    abs_pitch_pb < 0.35f);
+    /* 低速打滑: 轮子几乎不转(|wf|<0.15)但 IMU 前向加速度非零
+     * (|imu_acc|>0.1), 说明车在滑而轮不滚(慢漂根因)。带滞回计数
+     * 防误判: 连续 4 步才算打滑, 连续 40 步不满足才解除。 */
+    int slip_low_cond_pb = (!airborne_pb && !impact_pb &&
+                            abs_wheel_pb < 0.15f &&
+                            fabsf(g_balance.imu_acc_filt) > 0.10f &&
+                            abs_pitch_pb < 0.35f);
+    if (slip_low_cond_pb)
+        g_balance.slip_score++;
+    else
+        g_balance.slip_score--;
+    g_balance.slip_score = (g_balance.slip_score > 4) ? 4 :
+                           (g_balance.slip_score < -40) ? -40 : g_balance.slip_score;
+    int slip_low_pb = (g_balance.slip_score > 0);
     int zupt_pb = (!airborne_pb && !impact_pb && g_balance.run_time > 1.20f &&
                    abs_pitch_pb < 0.060f && fabsf(pitch_rate) < 1.2f &&
-                   abs_body_pb < 0.06f && fabsf(g_balance.imu_acc_filt) < 1.5f);
+                   abs_body_pb < 0.008f && fabsf(g_balance.imu_acc_filt) < 1.5f);
 #if SIMPLE_WHEEL_CAPTURE_ENABLE
     int capture_allowed_pb = (!airborne_pb && !impact_pb &&
                               abs_pitch_pb < SIMPLE_WHEEL_CAPTURE_PITCH_RAD &&
@@ -136,6 +150,7 @@
     if (airborne_pb) wheel_trust_pb = 0.0f;
     else if (impact_pb) wheel_trust_pb = 0.15f;
     else if (slip_pb) wheel_trust_pb = 0.15f;
+    else if (slip_low_pb) wheel_trust_pb = 0.30f;
     else if (abs_wheel_pb > 3.20f) wheel_trust_pb = 0.70f;
     int stable_odom_pb = (g_balance.run_time > 0.50f && abs_pitch_pb < 0.30f &&
                           fabsf(pitch_rate) < 5.0f && !airborne_pb && !impact_pb);
@@ -153,7 +168,7 @@
     {
         float trust_alpha_pb = dt_f / (0.050f + dt_f);
         trust_alpha_pb = clampf_local(trust_alpha_pb, 0.0f, 1.0f);
-        g_balance.origin_trust += trust_alpha_pb * (origin_pb.trust_ref - g_balance.origin_trust);
+    g_balance.origin_trust += trust_alpha_pb * (origin_pb.trust_ref - g_balance.origin_trust);
     }
     float neutral_pb = SIMPLE_BASE_NEUTRAL + SIMPLE_NEUTRAL_VEL * v_damp_pb;
     int origin_time_ok_pb;
@@ -292,10 +307,10 @@
              * 失同步)，再发倾角指令会维持 pitch 慢周期振荡。静止时只
              * 保持姿态，并把保持点缓慢吸附到当前里程计——车停哪认哪，
              * 位置环只刹速度、不追一个失真的原点。 */
-            if (fabsf(g_balance.body_v_filt) < 0.20f &&
-                fabsf(pos_ctrl_pb) < 0.45f) {
+            if (fabsf(g_balance.body_v_filt) < 0.003f &&
+                fabsf(pos_ctrl_pb) < 2.50f) {
                 neutral_pb = SIMPLE_BASE_NEUTRAL;
-                g_balance.hold_pos += 0.20f * dt_f *
+                g_balance.hold_pos += 0.01f * dt_f *
                                       (g_balance.pos - g_balance.hold_pos);
             }
         }

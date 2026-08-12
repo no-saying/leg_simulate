@@ -59,47 +59,56 @@
 #endif
 
 #ifndef SIMPLE_ORIGIN_RELEASE_POS
-/* 回到原点后释放位置环的位置窗口，单位 m；进入后开始把位置记忆向 0 泄放。 */
-#define SIMPLE_ORIGIN_RELEASE_POS 0.100f
+/* 回到原点后释放位置环的位置窗口，单位 m；进入后开始把位置记忆向 0 泄放。
+ * 腿摆方案下位置误差是纠偏依据, 不能车一慢溜就抹掉: 只有真正贴住保持点
+ * 且速度几乎为零时才释放。 */
+#define SIMPLE_ORIGIN_RELEASE_POS 0.050f
 #endif
 
 #ifndef SIMPLE_ORIGIN_RELEASE_V
-/* 回到原点后释放位置环的速度窗口，单位 m/s；速度足够小时才认为可以忘掉里程计误差。 */
-#define SIMPLE_ORIGIN_RELEASE_V 0.12f
+/* 回到原点后释放位置环的速度窗口，单位 m/s；0.025 以下才算真静止,
+ * 慢速漂移(0.03~0.1m/s)时保留位置误差给腿摆纠偏。 */
+#define SIMPLE_ORIGIN_RELEASE_V 0.025f
 #endif
 
 #ifndef SIMPLE_ORIGIN_FAST_POS_KP
 /* 短窗口内位置误差到目标速度的快速增益，单位 1/s。
  * 位置基准是 hold_pos(进入/松开手动时吸附的当前点)，不是启动原点，
  * 满足“无指令时维持当前点”。重轮下位置回环会激起 pitch 振荡，
- * 轻轮(armature 0.002)下正常，负责消除松手后的慢爬。 */
-#define SIMPLE_ORIGIN_FAST_POS_KP 0.40f
+ * 轻轮(armature 0.002)下正常，负责消除松手后的慢爬。
+ * 0.20 更温和: 起步漂移被吸收进 hold_pos 后不再来回走位，
+ * 避免位置环用 ±2.9° 俯仰来回纠正造成 pitch 低周摇摆。 */
+#define SIMPLE_ORIGIN_FAST_POS_KP 0.20f
 #endif
 
 #ifndef SIMPLE_ORIGIN_FAST_V_MAX
 /* 短窗口内回原点目标速度限幅，单位 m/s；比常规规划更积极，但仍保持温和。 */
-#define SIMPLE_ORIGIN_FAST_V_MAX 0.34f
+#define SIMPLE_ORIGIN_FAST_V_MAX 0.25f
 #endif
 
 #ifndef SIMPLE_ORIGIN_FAST_PITCH_KP
-/* 短窗口内速度误差到目标俯仰角的快速增益，单位 rad/(m/s)。 */
-#define SIMPLE_ORIGIN_FAST_PITCH_KP 0.115f
+/* 短窗口内速度误差到目标俯仰角的快速增益，单位 rad/(m/s)。
+ * 0.045rad 限幅 / 0.10 增益 ≈ 0.45m/s 才饱和: 0.1m/s 级漂移只给
+ * 1° 级倾角，避免小幅漂移就把 pitch 甩到 ±2.9°。 */
+#define SIMPLE_ORIGIN_FAST_PITCH_KP 0.10f
 #endif
 
 #ifndef SIMPLE_ORIGIN_FAST_PITCH_MAX
-/* 短窗口内速度规划给目标俯仰角的限幅，单位 rad；防止回零动作抢走主平衡环。 */
-#define SIMPLE_ORIGIN_FAST_PITCH_MAX 0.180f
+/* 短窗口内速度规划给目标俯仰角的限幅，单位 rad(约 2.6°)。
+ * 目标俯仰限幅先收紧, pitch 才可能只做 1° 级低频摆动。 */
+#define SIMPLE_ORIGIN_FAST_PITCH_MAX 0.045f
 #endif
 
 #ifndef SIMPLE_ORIGIN_DIRECT_PITCH_KP
 /* 短窗口内位置误差直接补到目标俯仰角的增益，单位 rad/m。
- * 轻轮下重新启用(比原 0.35 柔和)，消除松手后的慢爬/漂移。 */
-#define SIMPLE_ORIGIN_DIRECT_PITCH_KP 0.20f
+ * 0.3m 位置误差 × 0.15 = 0.045rad，被限幅压到 0.015rad(0.86°)，
+ * 只负责慢慢把车推回保持点，不参与大倾角机动。 */
+#define SIMPLE_ORIGIN_DIRECT_PITCH_KP 0.15f
 #endif
 
 #ifndef SIMPLE_ORIGIN_DIRECT_PITCH_MAX
-/* 位置直接补偿的最大俯仰角，单位 rad；保持为小量，主要负责慢慢把车推回原点。 */
-#define SIMPLE_ORIGIN_DIRECT_PITCH_MAX 0.060f
+/* 位置直接补偿的最大俯仰角，单位 rad(约 1.2°)。 */
+#define SIMPLE_ORIGIN_DIRECT_PITCH_MAX 0.020f
 #endif
 
 #ifndef SIMPLE_ORIGIN_DIRECT_SPEED_GATE
@@ -122,17 +131,17 @@
 #ifndef SIMPLE_ORIGIN_APPROACH_HOMEBOUND_KP
 /* 斜坡内回程方向刹车增益，单位 rad/(m/s)；比常规短窗口增益更硬，用于抵消
  * 目标俯仰角的响应延迟，把接近零点速度压住。 */
-#define SIMPLE_ORIGIN_APPROACH_HOMEBOUND_KP 0.34f
+#define SIMPLE_ORIGIN_APPROACH_HOMEBOUND_KP 0.45f
 #endif
 
 #ifndef SIMPLE_ORIGIN_APPROACH_AWAY_KP
 /* 斜坡内远离方向纠偏增益，单位 rad/(m/s)。 */
-#define SIMPLE_ORIGIN_APPROACH_AWAY_KP 0.30f
+#define SIMPLE_ORIGIN_APPROACH_AWAY_KP 0.40f
 #endif
 
 #ifndef SIMPLE_ORIGIN_APPROACH_PITCH_MAX
-/* 斜坡内回程方向目标俯仰角限幅，单位 rad。 */
-#define SIMPLE_ORIGIN_APPROACH_PITCH_MAX 0.150f
+/* 斜坡内回程方向目标俯仰角限幅，单位 rad(约 2.6°)。 */
+#define SIMPLE_ORIGIN_APPROACH_PITCH_MAX 0.045f
 #endif
 
 #ifndef SIMPLE_ORIGIN_STOP_POS
@@ -147,12 +156,12 @@
 
 #ifndef SIMPLE_ORIGIN_STOP_PITCH_KP
 /* 近场捕获刹车增益，单位 rad/(m/s)。 */
-#define SIMPLE_ORIGIN_STOP_PITCH_KP 0.34f
+#define SIMPLE_ORIGIN_STOP_PITCH_KP 0.45f
 #endif
 
 #ifndef SIMPLE_ORIGIN_STOP_PITCH_MAX
-/* 近场捕获刹车目标俯仰角限幅，单位 rad。 */
-#define SIMPLE_ORIGIN_STOP_PITCH_MAX 0.150f
+/* 近场捕获刹车目标俯仰角限幅，单位 rad(约 2.6°)。 */
+#define SIMPLE_ORIGIN_STOP_PITCH_MAX 0.045f
 #endif
 
 #ifndef SIMPLE_ORIGIN_CREEP_POS_KP
@@ -171,12 +180,12 @@
 
 #ifndef SIMPLE_ORIGIN_CREEP_PITCH_KP
 /* 大俯仰兜底爬行: 速度误差到目标俯仰角增益，单位 rad/(m/s)。 */
-#define SIMPLE_ORIGIN_CREEP_PITCH_KP 0.28f
+#define SIMPLE_ORIGIN_CREEP_PITCH_KP 0.35f
 #endif
 
 #ifndef SIMPLE_ORIGIN_CREEP_PITCH_MAX
-/* 大俯仰兜底爬行目标俯仰角限幅，单位 rad。 */
-#define SIMPLE_ORIGIN_CREEP_PITCH_MAX 0.090f
+/* 大俯仰兜底爬行目标俯仰角限幅，单位 rad(约 2.6°)。 */
+#define SIMPLE_ORIGIN_CREEP_PITCH_MAX 0.045f
 #endif
 
 #ifndef SIMPLE_ORIGIN_STOP_TAU_KP
@@ -192,7 +201,7 @@
 
 #ifndef SIMPLE_POS_DECAY_WHEN_HOME
 /* 原点释放后位置记忆向 0 衰减的速率，单位 1/s；越大越快忘掉长期里程计漂移。 */
-#define SIMPLE_POS_DECAY_WHEN_HOME 1.20f
+#define SIMPLE_POS_DECAY_WHEN_HOME 0.20f
 #endif
 
 #ifndef SIMPLE_ORIGIN_MEMORY_MAX
@@ -236,8 +245,8 @@
 #endif
 
 #ifndef SIMPLE_NEUTRAL_MAX
-/* 非速度规划路径下目标俯仰角偏置最大值，单位 rad。 */
-#define SIMPLE_NEUTRAL_MAX 0.075f
+/* 非速度规划路径下目标俯仰角偏置最大值，单位 rad(约 1.4°)。 */
+#define SIMPLE_NEUTRAL_MAX 0.025f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_ENABLE
@@ -247,7 +256,7 @@
 
 #ifndef SIMPLE_SPEED_PLAN_POS_KP
 /* 位置误差到目标速度的 P 增益，单位 1/s。 */
-#define SIMPLE_SPEED_PLAN_POS_KP 0.08f
+#define SIMPLE_SPEED_PLAN_POS_KP 0.05f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_V_MAX
@@ -257,32 +266,32 @@
 
 #ifndef SIMPLE_SPEED_PLAN_PITCH_KP
 /* 速度误差到目标俯仰角的 P 增益，单位 rad/(m/s)。 */
-#define SIMPLE_SPEED_PLAN_PITCH_KP 0.055f
+#define SIMPLE_SPEED_PLAN_PITCH_KP 0.05f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_PITCH_MAX
-/* 速度规划给目标俯仰角的默认限幅，单位 rad。 */
-#define SIMPLE_SPEED_PLAN_PITCH_MAX 0.100f
+/* 速度规划给目标俯仰角的默认限幅，单位 rad(约 2.6°)。 */
+#define SIMPLE_SPEED_PLAN_PITCH_MAX 0.045f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_HOMEBOUND_GAIN
 /* 正在回原点时放大速度误差到目标俯仰角的倍率。 */
-#define SIMPLE_SPEED_PLAN_HOMEBOUND_GAIN 2.0f
+#define SIMPLE_SPEED_PLAN_HOMEBOUND_GAIN 1.2f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_HOMEBOUND_MAX
-/* 回原点方向目标俯仰角限幅，单位 rad。 */
-#define SIMPLE_SPEED_PLAN_HOMEBOUND_MAX 0.130f
+/* 回原点方向目标俯仰角限幅，单位 rad(约 1.7°)。 */
+#define SIMPLE_SPEED_PLAN_HOMEBOUND_MAX 0.030f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_AWAY_GAIN
 /* 正在远离原点时放大纠偏的倍率。 */
-#define SIMPLE_SPEED_PLAN_AWAY_GAIN 2.5f
+#define SIMPLE_SPEED_PLAN_AWAY_GAIN 1.2f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_AWAY_MAX
-/* 远离原点方向目标俯仰角限幅，单位 rad。 */
-#define SIMPLE_SPEED_PLAN_AWAY_MAX 0.260f
+/* 远离原点方向目标俯仰角限幅，单位 rad(约 1.7°)。 */
+#define SIMPLE_SPEED_PLAN_AWAY_MAX 0.030f
 #endif
 
 #ifndef SIMPLE_SPEED_PLAN_START_TIME

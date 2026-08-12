@@ -47,7 +47,8 @@ void dashcam_open(void)
                 "bx,by,bz,xh,ox,oy,tp_deg,"
                 "sw,le,ld,wheel_trust,pos_trust,"
                 "airborne,impact,slip,leg_load,support,contact_mode,"
-                "raw_a,raw_i,raw_s,raw_z,wf,wk,pk,thr,ith,wa,ia,wr,leg_len,le_man\n");
+                "raw_a,raw_i,raw_s,raw_z,wf,wk,pk,thr,ith,wa,ia,wr,leg_len,le_man,"
+                "rl_st,rl_a0,rl_a1,rl_ed,rl_sd,rl_oh\n");
     }
     snprintf(path, sizeof(path), "logs/dashcam_%s_events.log", ts);
     g_event_fp = fopen(path, "w");
@@ -84,7 +85,8 @@ void dashcam_log_row(const SensorState *s, double wall_t, const char *keys,
             "%.3f,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,"
             "%.4f,%.4f,%.4f,%.3f,%.3f,"
             "%d,%d,%d,%.1f,%.3f,%d,"
-            "%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f\n",
+            "%d,%d,%d,%d,%.3f,%.3f,%.3f,%.3f,%.3f,%.2f,%.2f,%.2f,%.4f,%.4f,"
+            "%d,%.3f,%.3f,%.3f,%.3f,%.3f\n",
             s->sim_time, wall_t, keys, manual_active, hold_pos,
             s->pitch * 57.29578, s->roll * 57.29578, s->yaw * 57.29578,
             s->gyro[1], s->yaw_rate,
@@ -101,6 +103,8 @@ void dashcam_log_row(const SensorState *s, double wall_t, const char *keys,
             s->wheel_v_filt, s->wheel_body_v, s->pitch_kin_v,
             s->wheel_thrash, s->imu_thrash,
             s->wheel_acc, s->imu_for_slip, s->wheel_imu_res,
-            s->leg_len, s->leg_extend_manual);
+            s->leg_len, s->leg_extend_manual,
+            s->rl_state, s->rl_act0, s->rl_act1,
+            s->rl_ext_delta, s->rl_swing_delta, s->rl_obs_h);
     fflush(g_dash_fp);
 }

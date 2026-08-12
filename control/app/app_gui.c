@@ -173,6 +173,8 @@ static void update_manual_command(GLFWwindow *window)
         else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_RELEASE) g_key_extend = 0;
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) g_key_shorten = 1;
         else if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_RELEASE) g_key_shorten = 0;
+        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) g_key_spin = 1;
+        else if (glfwGetKey(window, GLFW_KEY_T) == GLFW_RELEASE) g_key_spin = 0;
         {
             static int g_space_prev = 0;
             int space_now = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
@@ -186,14 +188,20 @@ static void update_manual_command(GLFWwindow *window)
     }
     float speed = 0.0f;
     float yaw_rate = 0.0f;
-    if (g_key_w) speed += SIMPLE_MANUAL_V_MAX;
-    if (g_key_s) speed -= SIMPLE_MANUAL_V_MAX;
-    /* 平衡核心内 manual_yaw<0 -> 右转(实测头less 'r'=-0.5 转 yaw 负)，
-     * 所以 A 左转给正、D 右转给负。 */
-    if (g_key_a) yaw_rate += SIMPLE_MANUAL_YAW_RATE;
-    if (g_key_d) yaw_rate -= SIMPLE_MANUAL_YAW_RATE;
+    if (g_key_spin) {
+        /* 原地小陀螺: 不前进, 恒定偏航角速度自转。
+         * 方向沿用 A/D 约定: 正=左转, 负=右转。 */
+        yaw_rate = SIMPLE_MANUAL_SPIN_YAW_RATE;
+    } else {
+        if (g_key_w) speed += SIMPLE_MANUAL_V_MAX;
+        if (g_key_s) speed -= SIMPLE_MANUAL_V_MAX;
+        /* 平衡核心内 manual_yaw<0 -> 右转(实测头less 'r'=-0.5 转 yaw 负)，
+         * 所以 A 左转给正、D 右转给负。 */
+        if (g_key_a) yaw_rate += SIMPLE_MANUAL_YAW_RATE;
+        if (g_key_d) yaw_rate -= SIMPLE_MANUAL_YAW_RATE;
+    }
 
-    int active = (g_key_w || g_key_a || g_key_s || g_key_d);
+    int active = (g_key_w || g_key_a || g_key_s || g_key_d || g_key_spin);
     if (active != g_manual_prev_active) {
         g_manual_prev_active = active;
         printf("[Manual] %s speed=%+.2f yaw=%+.2f\n",
@@ -236,7 +244,7 @@ static void gui_log_if_due(GuiRuntime *gui, const SensorState *s)
 
 static int manual_active(void)
 {
-    return (g_key_w || g_key_a || g_key_s || g_key_d);
+    return (g_key_w || g_key_a || g_key_s || g_key_d || g_key_spin);
 }
 
 static void gui_render_if_due(GuiRuntime *gui, const Simulation *sim)

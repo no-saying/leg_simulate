@@ -8,8 +8,12 @@
  * ========================================================================== */
 
 #ifndef SIMPLE_PARK_VEL_DAMP
-/* 近原点停车速度阻尼；只在 pitch 足够小且运行足够久时介入。 */
-#define SIMPLE_PARK_VEL_DAMP 18.0f
+/* 近原点停车速度阻尼；只在 pitch 足够小且运行足够久时介入。
+ * 目标俯仰限幅收紧后 pitch 始终 <6°，原 18 的强刹车会一直叠加在
+ * 平衡环上、吃掉救车扭矩(实测 pitch 往 tp 方向恢复时扭矩从 15Nm
+ * 被压到 3Nm)。降到 4 只保留轻微停靠阻尼，主刹由 SIMPLE_VEL_DAMP
+ * 承担。 */
+#define SIMPLE_PARK_VEL_DAMP 4.0f
 #endif
 
 #ifndef SIMPLE_SPIN_DAMP

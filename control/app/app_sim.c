@@ -11,6 +11,7 @@
 #include "app_internal.h"
 
 #include <stdio.h>
+#include <stdlib.h>
 #include <string.h>
 
 #include "balance.h"
@@ -53,12 +54,19 @@ void simulation_destroy(Simulation *sim)
 void maybe_auto_enable_balance(Simulation *sim)
 {
 #if !OPEN_LOOP_WHEEL_TEST
+    /* 启动步数可用 BALANCE_START_STEP 环境变量覆盖(默认 20 步=0.02s),
+     * 用于测试"平衡从第一步就开启"是否能消除启动瞬态。 */
+    static int start_step = -1;
+    if (start_step < 0) {
+        const char *e = getenv("BALANCE_START_STEP");
+        start_step = e ? atoi(e) : AUTO_BALANCE_STEP;
+    }
     if (!sim->auto_balance_done &&
-        sim->state.step_count >= AUTO_BALANCE_STEP &&
+        sim->state.step_count >= start_step &&
         !balance_active()) {
         balance_toggle();
         sim->auto_balance_done = 1;
-        printf("[Auto] Balance ON @ t=0.02s\n");
+        printf("[Auto] Balance ON @ t=%.3fs\n", start_step * sim->model->opt.timestep);
     }
 #else
     (void)sim;

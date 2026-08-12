@@ -26,6 +26,13 @@ SX, SY = 30.0, 14.0        # footprint x ∈ [-15,15], y ∈ [-7,7]
 # geom is offset so that the terrain's useful part covers world x ∈ [0,16].
 GEOM_X = 3.5
 
+# 出生保护区: 世界 x < GUARD_FLAT_X 强制平地, 防止地形起伏把出生点
+# 变成陡坡(高斯特征尾部会从很远就开始抬升)。硬截止会产生垂直台阶,
+# 车腿/轮碰到台阶会被顶回; 所以在 GUARD_BLEND_X 之前线性淡入特征,
+# 让起伏从平缓过渡到复杂地形。
+GUARD_FLAT_X = 4.0
+GUARD_BLEND_X = 9.0
+
 # Base terrain surface height: world z where flat ground is. The flat plane
 # geom stays at z=-0.26; we keep the hfield surface at the same level.
 GROUND_Z = -0.26
@@ -34,19 +41,27 @@ GROUND_Z = -0.26
 #  spawn at x=0 stays flat, rough section starts around x=3):
 #   (center_x, center_y, sigma_x, sigma_y, peak_world_z, is_pit)
 FEATURES = [
-    # Rolling humps and pits along the path.
-    (4.0, 0.0, 1.4, 2.2, 0.32, False),
-    (5.6, 0.0, 1.0, 1.4, -0.22, True),
-    (7.2, 0.0, 1.2, 2.4, 0.36, False),
-    (8.8, 0.0, 0.9, 1.3, -0.20, True),
-    (10.2, 0.0, 1.2, 2.0, 0.30, False),
-    (11.8, 0.0, 1.0, 1.5, -0.18, True),
-    (13.2, 0.0, 1.2, 2.2, 0.34, False),
-    (14.8, 0.0, 0.9, 1.4, -0.20, True),
-    (16.2, 0.0, 1.1, 1.8, 0.28, False),
-    # Off-path bumps so the sides are interesting too.
-    (8.0, 3.4, 1.3, 1.2, 0.26, False),
-    (12.0, -3.2, 1.4, 1.2, 0.28, False),
+    # ===== 沿路径: 缓鼓包 + 浅坑交替(坡度 ≤ ~2.5°, 小俯仰可刹) =====
+    (6.0, 0.0, 3.0, 4.0, 0.08, False),
+    (8.0, 0.0, 2.6, 3.4, -0.06, True),
+    (10.0, 0.0, 3.0, 4.2, 0.08, False),
+    (12.0, 0.0, 2.6, 3.4, -0.06, True),
+    (14.0, 0.0, 3.0, 4.0, 0.07, False),
+    (16.0, 0.0, 2.6, 3.4, -0.05, True),
+
+    # ===== 侧向不对称鼓包: 只在一侧凸起, 专门考 roll =====
+    (7.0, 2.4, 3.2, 2.2, 0.07, False),   # 右前侧缓鼓包
+    (8.5, -2.4, 3.0, 2.2, -0.06, True),  # 左中侧浅坑
+    (11.0, 2.6, 3.4, 2.4, 0.07, False),  # 右中侧缓鼓包
+    (12.5, -2.6, 3.0, 2.0, -0.06, True), # 左侧浅坑
+    (15.0, 2.4, 3.2, 2.2, 0.06, False),  # 右侧缓鼓包
+    (16.5, -2.2, 3.0, 2.2, -0.05, True), # 左侧浅坑
+
+    # ===== 斜向缓坡: 前后腿先后上坡 =====
+    (8.0, 2.0, 3.6, 2.8, 0.06, False),
+    (10.0, -1.8, 3.4, 2.8, 0.06, False),
+    (13.0, 1.8, 3.6, 2.8, 0.05, False),
+    (15.0, -2.0, 3.4, 2.8, 0.06, False),
 ]
 
 
@@ -58,11 +73,24 @@ def main() -> None:
             wx = -SX / 2.0 + (ix + 0.5) * (SX / NX)
             wx_world = wx + GEOM_X
             z = 0.0
-            for cx, cy, sx, sy, peak, pit in FEATURES:
-                dx = (wx_world - cx) / sx
-                dy = (wy - cy) / sy
-                g = math.exp(-0.5 * (dx * dx + dy * dy))
-                z += -g * peak if pit else g * peak
+            # 出生保护区: 世界 x < 2.6 保持平地。最早特征(3.0, σ=1.2)
+            # 的高斯尾部从 x≈0.5 就开始抬升(实测坡 5~9°), 车在坡脚
+            # 用小俯仰根本停不住。保护区内特征全部清零, 起伏从 2.6m 起。
+            if wx_world >= GUARD_FLAT_X:
+                fade = 1.0
+                if wx_world < GUARD_BLEND_X:
+                    fade = (wx_world - GUARD_FLAT_X) / (GUARD_BLEND_X - GUARD_FLAT_X)
+                for cx, cy, sx, sy, peak, pit in FEATURES:
+                    dx = (wx_world - cx) / sx
+                    dy = (wy - cy) / sy
+                    g = math.exp(-0.5 * (dx * dx + dy * dy))
+                    z += fade * (-g * peak if pit else g * peak)
+            # 多个特征在路径附近重叠会累加成陡峭山包(实测 0.6m/19°),
+            # 小俯仰根本刹不住。钳制总起伏到 ±0.10m, 坡度 ≤ ~2.5°。
+            if z > 0.10:
+                z = 0.10
+            elif z < -0.10:
+                z = -0.10
             heights[iy][ix] = GROUND_Z + z
 
     h_min = min(min(row) for row in heights)

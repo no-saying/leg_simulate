@@ -16,6 +16,7 @@
 
 #include "balance.h"
 #include "control_config.h"
+#include "controllers/rl_jump/rl_jump_controller.h"
 #include "dashcam.h"
 #include "telemetry.h"
 
@@ -50,6 +51,8 @@ int run_headless(Simulation *sim, double duration)
             if (strstr(kbuf, "b")) seg.v -= SIMPLE_MANUAL_V_MAX;
             if (strstr(kbuf, "l")) seg.yaw += SIMPLE_MANUAL_YAW_RATE;
             if (strstr(kbuf, "r")) seg.yaw -= SIMPLE_MANUAL_YAW_RATE;
+            if (strstr(kbuf, "s")) seg.yaw += SIMPLE_MANUAL_SPIN_YAW_RATE;  /* s=小陀螺 */
+            if (strstr(kbuf, "z")) seg.yaw -= SIMPLE_MANUAL_SPIN_YAW_RATE;  /* z=反向小陀螺 */
             if (strstr(kbuf, "u")) seg.ext -= MANUAL_LEG_EXTEND_MAX;  /* u=伸长/升高 */
             if (strstr(kbuf, "d")) seg.ext += MANUAL_LEG_EXTEND_MAX;  /* d=缩短/降低 */
             mseg[mseg_n++] = seg;
@@ -73,6 +76,18 @@ int run_headless(Simulation *sim, double duration)
         sim->state.step_count = 0;
         mj_forward(sim->model, sim->data);
         printf("[Fall] started rolled 90deg right for self-right test\n");
+    }
+    /* PITCH_TILT_START=deg: 初始给一个 pitch 倾斜(度), 复现前翻(+)/后翻(-)。 */
+    const char *pitch_tilt_env = getenv("PITCH_TILT_START");
+    if (pitch_tilt_env) {
+        float deg = (float)atof(pitch_tilt_env);
+        float half = (float)(deg * 0.5 * 3.14159265358979 / 180.0);
+        sim->data->qpos[3] = cosf(half);
+        sim->data->qpos[4] = 0.0f;
+        sim->data->qpos[5] = sinf(half);
+        sim->data->qpos[6] = 0.0f;
+        mj_forward(sim->model, sim->data);
+        printf("[PitchTilt] started pitch=%.1f deg\n", deg);
     }
     /* ROLL_TILT_START=deg: 初始给一个 roll 倾斜(度), 验证 roll 稳定把车找平。 */
     const char *tilt_env = getenv("ROLL_TILT_START");
@@ -102,6 +117,29 @@ int run_headless(Simulation *sim, double duration)
         }
     }
     int jump_done[8] = {0};
+    /* RL_JUMP_AT=t1,t2: 定时触发 RL 跳跃(逗号分隔多个时刻) */
+    const char *rlj_env = getenv("RL_JUMP_AT");
+    double rlj_at_t[8];
+    int rlj_at_n = 0;
+    if (rlj_env) {
+        char copy[64];
+        snprintf(copy, sizeof(copy), "%s", rlj_env);
+        char *tok = strtok(copy, ",");
+        while (tok && rlj_at_n < 8) {
+            rlj_at_t[rlj_at_n++] = atof(tok);
+            tok = strtok(NULL, ",");
+        }
+        printf("[RLJump] headless triggers at t=");
+        for (int i = 0; i < rlj_at_n; i++) printf("%.2f ", rlj_at_t[i]);
+        printf("\n");
+    }
+    int rlj_done[8] = {0};
+    /* RL_JUMP_PERIOD=s: 每隔 s 秒周期性触发 RL 跳跃(持续测试用) */
+    const char *rlj_period_env = getenv("RL_JUMP_PERIOD");
+    double rlj_period = rlj_period_env ? atof(rlj_period_env) : 0.0;
+    double rlj_next = (rlj_period > 0.0) ? rlj_period : 1e18;
+    if (rlj_period > 0.0)
+        printf("[RLJump] periodic trigger every %.2fs\n", rlj_period);
     const char *sr_env = getenv("SELF_RIGHT_AT");
     double sr_at = sr_env ? atof(sr_env) : -1.0;
     int sr_done = 0;
@@ -149,6 +187,18 @@ int run_headless(Simulation *sim, double duration)
                 jump_done[ji] = 1;
                 printf("[Jump] triggered at t=%.2f\n", sim->state.sim_time);
             }
+        }
+        for (int ji = 0; ji < rlj_at_n; ji++) {
+            if (!rlj_done[ji] && sim->state.sim_time >= rlj_at_t[ji]) {
+                rl_jump_controller_trigger();
+                rlj_done[ji] = 1;
+                printf("[RLJump] triggered at t=%.2f\n", sim->state.sim_time);
+            }
+        }
+        if (rlj_period > 0.0 && sim->state.sim_time >= rlj_next) {
+            rl_jump_controller_trigger();
+            printf("[RLJump] periodic trigger at t=%.2f\n", sim->state.sim_time);
+            rlj_next += rlj_period;
         }
         if (manual_test) {
             int active = 0;

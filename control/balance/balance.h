@@ -11,6 +11,7 @@ extern "C" {
 #endif
 
 void balance_init(void);
+void balance_reset_state(void);   /* 回合级重置: 恢复全部内部状态到初始值 */
 void balance_toggle(void);     // B键
 void balance_tune_neutral(void);       // N键: 整定中立角
 void balance_tune_off(void);           // 关闭整定

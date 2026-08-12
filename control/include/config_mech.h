@@ -32,9 +32,9 @@
 #define WHEEL_V_RUNAWAY 2.40f
 
 /* 里程计速度死区，单位 m/s；低于该值认为静止，减小近原点积分漂移。
- * 不能太大：实测 0.06 会把 0.02m/s 的真实慢溜整段屏蔽，造成
- * 控制器不刹车 + 里程计不积分(漂移没解决 + 里程计误差大的共同根因)。 */
-#define WHEEL_V_DEADZONE 0.02f
+ * 0.003: 只滤纯数值噪声, 0.02~0.05m/s 的慢漂必须积分,
+ * 否则位置环永远看不到漂移(实测 bx 漂 0.7m 而 es 不动)。 */
+#define WHEEL_V_DEADZONE 0.003f
 
 /* FIR 低频轮速死区，单位 m/s；用于抗高频抖动的历史分支。 */
 #define WHEEL_FIR_DEADZONE 0.08f
@@ -75,7 +75,7 @@
 #define MANUAL_JUMP_ENABLE 1
 #endif
 #ifndef JUMP_CROUCH_EXT
-#define JUMP_CROUCH_EXT  0.25f   /* 下蹲: 腿缩短、车体压低蓄力 */
+#define JUMP_CROUCH_EXT  0.15f   /* 下蹲: 腿缩短、车体压低蓄力 */
 #endif
 #ifndef JUMP_CROUCH_T
 #define JUMP_CROUCH_T    0.20f
@@ -84,7 +84,7 @@
 #define JUMP_CROUCH_STEP 0.0016f /* ~1.6 rad/s 快速下蹲 */
 #endif
 #ifndef JUMP_LAUNCH_EXT
-#define JUMP_LAUNCH_EXT -0.25f   /* 蹬伸: 腿快速伸长把车体弹起 */
+#define JUMP_LAUNCH_EXT -0.18f   /* 蹬伸: 腿快速伸长把车体弹起 */
 #endif
 #ifndef JUMP_LAUNCH_T
 #define JUMP_LAUNCH_T    0.18f
@@ -93,7 +93,7 @@
 #define JUMP_LAUNCH_STEP 0.0200f /* ~20 rad/s 蹬伸 */
 #endif
 #ifndef JUMP_AIR_EXT
-#define JUMP_AIR_EXT    -0.25f   /* 空中保持全伸，姿态更稳 */
+#define JUMP_AIR_EXT    -0.18f   /* 空中保持全伸，姿态更稳 */
 #endif
 #ifndef JUMP_AIR_T
 #define JUMP_AIR_T       0.55f
@@ -127,6 +127,15 @@
 /* 起跳方向控制: 蹬伸阶段按 IMU 加速度方向修正腿差动，
  * 把起跳加速度拉回竖直(侧向/前后加速度 -> 左右/前后腿差动)。 */
 #define JUMP_DIR_KP 0.35f
+#endif
+
+#ifndef JUMP_AIR_PITCH_KP
+/* 空中姿态: 前后腿差动(swing)按 pitch 修正, 单位 swing/rad。 */
+#define JUMP_AIR_PITCH_KP 0.60f
+#endif
+#ifndef JUMP_AIR_ROLL_KP
+/* 空中姿态: 左右腿差动(ext)按 roll 修正, 单位 ext/rad。 */
+#define JUMP_AIR_ROLL_KP 0.50f
 #endif
 
 
@@ -171,9 +180,9 @@
 #endif
 
 #ifndef JUMP_TORQUE
-/* 跳跃下蹲/蹬伸阶段腿执行器打满的扭矩幅度(ctrl 单位, gainprm=50 -> Nm)。
- * 实测最优点: 4.0=200Nm(0.5m)，更低扭矩起跳不干净。 */
-#define JUMP_TORQUE 4.0f
+/* 跳跃蹬伸阶段腿执行器打满的扭矩幅度(ctrl 单位, gainprm=50 -> Nm)。
+ * 4.0=200Nm 斜抛前翻, 2.0=100Nm 弹不起, 3.0=150Nm 折中。 */
+#define JUMP_TORQUE 3.0f
 #endif
 
 #ifndef JUMP_AIR_PITCH_KP
@@ -197,6 +206,15 @@
 #ifndef JUMP_TRIG_ROLL_MAX
 /* 起跳姿态门槛(rad): |roll| 超过该值拒绝触发。 */
 #define JUMP_TRIG_ROLL_MAX 0.08f
+#endif
+#ifndef JUMP_TRIG_V_MAX
+/* 跳跃触发最大速度(m/s): 车还在明显移动时不允许跳(实测 GUI 里
+ * 车运动时按空格, 蹬伸把车甩成侧翻)。 */
+#define JUMP_TRIG_V_MAX 0.25f
+#endif
+#ifndef JUMP_TRIG_RATE_MAX
+/* 跳跃触发最大俯仰角速度(rad/s)。 */
+#define JUMP_TRIG_RATE_MAX 1.0f
 #endif
 
 #ifndef JUMP_LAND_KP

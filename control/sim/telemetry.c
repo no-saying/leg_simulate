@@ -18,7 +18,8 @@ void telemetry_print_frame(const SensorState *s, double fps)
            "ph=%.0f rs=%.2f cs=%.2f cm=%.0f lc=%.2f ll=%.1f sb=%.2f "
            "wt=%.2f pt=%.2f ab=%.0f im=%.0f sl=%.0f "
            "raw[a%.0f i%.0f s%.0f z%.0f] wf=%+.2f fir=%+.2f wk=%+.2f "
-           "lk=%+.2f pk=%+.2f thr=%.2f ith=%.2f wa=%+.1f ia=%+.1f wr=%.1f | FPS=%.0f\n",
+           "lk=%+.2f pk=%+.2f thr=%.2f ith=%.2f wa=%+.1f ia=%+.1f wr=%.1f "
+           "| rl=%d a0=%+.2f a1=%+.2f ed=%+.2f sw=%+.2f oh=%+.2f | FPS=%.0f\n",
            s->sim_time, s->pitch * 57.3, s->roll * 57.3, s->yaw * 57.3,
            s->yaw_error * 57.3,
            s->gyro[1], s->yaw_rate,
@@ -35,6 +36,8 @@ void telemetry_print_frame(const SensorState *s, double fps)
            s->raw_airborne, s->raw_impact, s->raw_slip, s->raw_zupt,
            s->wheel_v_filt, s->wheel_fir, s->wheel_body_v, s->leg_kin_v,
            s->pitch_kin_v, s->wheel_thrash, s->imu_thrash,
-           s->wheel_acc, s->imu_for_slip, s->wheel_imu_res, fps);
+           s->wheel_acc, s->imu_for_slip, s->wheel_imu_res,
+           s->rl_state, s->rl_act0, s->rl_act1,
+           s->rl_ext_delta, s->rl_swing_delta, s->rl_obs_h, fps);
     fflush(stdout);
 }

@@ -41,8 +41,9 @@
 #endif
 
 #ifndef SIMPLE_PITCH_KD
-/* 俯仰角速度 D 增益。调大: 阻尼更强；过大: 放大陀螺噪声、腿/轮抖动。 */
-#define SIMPLE_PITCH_KD 70.0f
+/* 俯仰角速度 D 增益。调大: 阻尼更强，压掉目标俯仰低周摇摆引起的
+ * pitch 过冲(实测 tp=2.4° 时 pitch 冲到 3.1°)；过大: 放大陀螺噪声。 */
+#define SIMPLE_PITCH_KD 85.0f
 #endif
 
 #ifndef SIMPLE_PITCH_KI_NM
@@ -54,7 +55,8 @@
 #endif
 
 #ifndef SIMPLE_PITCH_RATE_TAU
-/* 俯仰角速度一阶低通时间常数。0=不过滤；调大可降噪但增加相位滞后。 */
+/* 俯仰角速度一阶低通时间常数。0=不过滤；实测 8~20ms 滤波都会
+ * 拖垮启动暂态(0.5s 内翻车)，保持不过滤，打滑抖振靠轮速监管处理。 */
 #define SIMPLE_PITCH_RATE_TAU 0.0f
 #endif
 
@@ -84,8 +86,12 @@
 #endif
 
 #ifndef SIMPLE_VEL_DAMP
-/* 机体前向速度阻尼。调大可压轮速；过大会阻碍回原点速度规划。 */
-#define SIMPLE_VEL_DAMP 4.0f
+/* 机体前向速度阻尼，单位 Nm/(m/s)，直接作用在共模轮扭矩上。
+ * 速度刹车统一走速度环 -> 目标俯仰角链路，俯仰环用满扭矩去执行，
+ * 这里的直连阻尼只保留很小值防高频抖振，避免与抬身扭矩反向抵消
+ * (漂移 1m/s 时 5Nm 前驱刹车 vs 俯仰误差 -5Nm 抬身, 净扭矩≈0)。
+ * 抬身瞬间该阻尼按俯仰误差自动退让, 见 balance_step_pitch_yaw.inc。 */
+#define SIMPLE_VEL_DAMP 1.5f
 #endif
 
 #ifndef SIMPLE_NEUTRAL_VEL

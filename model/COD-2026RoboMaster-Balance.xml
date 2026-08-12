@@ -44,7 +44,7 @@
          出生点 x=0 处是平地(与 plane 同高), 前方 x≈3~17 是连续鼓包/凹坑。
          hfield 是实心体(pos.z + base_z 起), 不能放出生点正下方。 -->
     <geom name="terrain" type="hfield" hfield="terrain_h" pos="3.5 0 -0.29"
-          material="terrain" friction="1.0 0.5 0.01" />
+          material="terrain" friction="2.0 2.0 0.02" />
 
     <body name="base" pos="0 0 0.05">
       <freejoint/>
@@ -100,7 +100,7 @@
           <joint name="Left_Wheel_joint" pos="0 0 0" axis="0 1 0" damping="0.08" armature="0.002" />
           <geom type="mesh" contype="0" conaffinity="0" rgba="0.79216 0.81961 0.93333 1" mesh="Left_Wheel_link" material="rubber"/>
           <geom name="Left_Wheel_collision" type="cylinder" pos="0 -0.0019 0" euler="1.57079632679 0 0"
-                size="0.058 0.0281" material="rubber" friction="1.0 0.01 0.01"/>
+                size="0.058 0.0281" material="rubber" friction="2.0 2.0 0.02"/>
 
         </body>
       </body>
@@ -150,7 +150,7 @@
           <joint name="Right_Wheel_joint" pos="0 0 0" axis="0 -1 0" damping="0.08" armature="0.002"/>
           <geom type="mesh" contype="0" conaffinity="0" rgba="0.79216 0.81961 0.93333 1" mesh="Right_Wheel_link" material="rubber"/>
           <geom name="Right_Wheel_collision" type="cylinder" pos="0 0.0019 0" euler="1.57079632679 0 0"
-                size="0.058 0.0281" material="rubber" friction="1.0 0.01 0.01"/>
+                size="0.058 0.0281" material="rubber" friction="2.0 2.0 0.02"/>
 
         </body>
       </body>

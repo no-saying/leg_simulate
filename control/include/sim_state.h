@@ -6,7 +6,8 @@
  *
  * 分层约定:
  *   - 姿态、IMU、轮编码器、腿编码器、执行器力矩可以进入控制器。
- *   - body_pos 是 MuJoCo 世界坐标，只用于日志、相机和屏幕轨迹显示。
+ *   - body_pos/body_vel 是 MuJoCo 世界坐标, 用于日志、相机、屏幕轨迹显示,
+ *     同时也是 RL 跳跃策略的观测输入(机体高度/水平速度)。
  *   - balance_* 调试量由 balance.c 产生，回填到这里供日志/GUI 读取。
  */
 typedef struct {
@@ -20,6 +21,7 @@ typedef struct {
     double acc_mag;
 
     double body_pos[3];
+    double body_vel[3];                 /* 世界系线速度(RL 跳跃观测) */
 
     double lf_pos, lf_vel;
     double lr_pos, lr_vel;
@@ -48,6 +50,12 @@ typedef struct {
     double side_balance;
     double ekf_s, odom_x, odom_y;
     double yaw_error;
+
+    /* RL 跳跃调试量(由 controllers/rl_jump 每步回填, 供日志/GUI 读取) */
+    int   rl_state;                     /* 0=idle 1=active 2=fadeout */
+    float rl_act0, rl_act1;             /* 策略原始动作 [-1,1] */
+    float rl_ext_delta, rl_swing_delta; /* 实际叠加到腿的增量 */
+    float rl_obs_h;                     /* 观测高度增量 z-0.085 */
 
     int step_count;
     int paused;

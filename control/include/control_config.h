@@ -31,5 +31,6 @@
 #include "config_odom.h"
 #include "config_manual.h"
 #include "config_lowlevel.h"
+#include "config_controllers.h"
 
 #endif

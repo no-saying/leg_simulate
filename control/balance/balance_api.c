@@ -14,6 +14,20 @@
 #include <math.h>
 
 void balance_init(void)  { g_balance.bal_mode = 0; }
+
+void balance_reset_state(void)
+{
+    /* 训练/测试每回合前调用: balance_init 只切模式, 不清积分/滤波,
+     * 这里把 g_balance 全部状态恢复到初始值(首次调用时保存初始拷贝)。 */
+    static int saved = 0;
+    static BalanceRuntime initial;
+    if (!saved) {
+        initial = g_balance;
+        saved = 1;
+    }
+    g_balance = initial;
+}
+
 void balance_toggle(void) { g_balance.bal_mode = !g_balance.bal_mode; }
 int  balance_active(void) { return g_balance.bal_mode; }
 int  balance_get_manual_active(void) { return g_balance.manual_active; }
@@ -79,7 +93,14 @@ void balance_trigger_jump(void)
     /* 跳跃进行中忽略重复触发，避免中途打断时序导致落地失控。 */
     if (!g_balance.fallen && g_balance.airborne_dbg < 0.5f && !g_balance.jump_active &&
         fabsf(g_balance.last_pitch) < JUMP_TRIG_PITCH_MAX &&
-        fabsf(g_balance.last_roll) < JUMP_TRIG_ROLL_MAX) {
+        fabsf(g_balance.last_roll) < JUMP_TRIG_ROLL_MAX &&
+        fabsf(g_balance.body_v_filt) < JUMP_TRIG_V_MAX &&
+        fabsf(g_balance.pitch_rate_filt) < JUMP_TRIG_RATE_MAX) {
+        /* 起跳前把手动驾驶指令清空, 避免下蹲/蹬伸时还在加速。 */
+        g_balance.manual_v = 0.0f;
+        g_balance.manual_v_target = 0.0f;
+        g_balance.manual_yaw = 0.0f;
+        g_balance.manual_yaw_target = 0.0f;
         g_balance.jump_active = 1;
         g_balance.jump_t = 0.0f;
     }

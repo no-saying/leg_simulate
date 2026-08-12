@@ -165,6 +165,7 @@ void reset_odom_filter(void)
     g_balance.acc_bias = 0.0f;
     g_balance.pos_i = 0.0f;
     g_balance.leg_swing = 0.0f;
+    g_balance.leg_pos_i = 0.0f;
     g_balance.leg_extend = 0.0f;
     g_balance.leg_extend_manual = 0.0f;
     g_balance.leg_side_extend = 0.0f;

@@ -95,6 +95,8 @@ int sensors_read(const mjModel *m, mjData *d, SensorState *s)
 
     /* 世界系位置明确只用于显示。 */
     for (int i = 0; i < 3; i++) s->body_pos[i] = d->qpos[i];
+    /* 世界系线速度: RL 跳跃观测需要 |vx|, |vy|。 */
+    for (int i = 0; i < 3; i++) s->body_vel[i] = d->qvel[i];
 
     s->lf_pos = d->sensordata[10]; s->lf_vel = d->sensordata[11];
     s->lr_pos = d->sensordata[12]; s->lr_vel = d->sensordata[13];

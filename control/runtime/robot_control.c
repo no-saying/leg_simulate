@@ -3,6 +3,9 @@
 #include <math.h>
 #include <stdlib.h>
 #include "balance.h"
+#include "controllers/controllers.h"
+#include "controllers/rl_jump/rl_jump_controller.h"
+#include "controllers/supervisor/controller_supervisor.h"
 #include "leg_t.h"
 #include "pid.h"
 #include "control_config.h"
@@ -43,6 +46,13 @@ typedef struct {
 } SidePair;
 
 static RobotControlRuntime g_control;
+
+void robot_control_reset(void)
+{
+    /* 清空低层控制器与运行时状态: ready=0 后下一帧会重新初始化
+     * LegJoint PID/轮电机, wheel_speed_cap_hold 等也归零。 */
+    memset(&g_control, 0, sizeof(g_control));
+}
 
 static float clampf_runtime(float x, float lo, float hi)
 {
@@ -181,26 +191,53 @@ static void copy_balance_debug(SensorState *s, const BalanceOutput *out)
     s->yaw_error = balance_get_yaw_error();
 }
 
-static SidePair clamp_leg_extension(double common, double differential)
+static SidePair clamp_leg_extension(const SensorState *s,
+                                    double common, double differential)
 {
+    /* RL 跳跃期允许更大的腿长范围(训练动作幅度 ±0.30 超出常规 ±0.26),
+     * 空闲/正常行驶仍按常规限位保护。 */
+    float limit = (s->rl_state != 0) ? 0.35f : 0.26f;
     SidePair ext = {
         .left = (float)(common + differential),
         .right = (float)(common - differential)
     };
-    ext.left = clampf_runtime(ext.left, -0.260f, 0.260f);
-    ext.right = clampf_runtime(ext.right, -0.260f, 0.260f);
+    ext.left = clampf_runtime(ext.left, -limit, limit);
+    ext.right = clampf_runtime(ext.right, -limit, limit);
     return ext;
 }
 
 static void update_leg_servos(LowLevelControllers *low, SensorState *s, float swing_ref)
 {
-    SidePair ext = clamp_leg_extension(s->leg_extend, s->leg_side_extend);
+    SidePair ext = clamp_leg_extension(s, s->leg_extend, s->leg_side_extend);
+
+    /* 临时调试: RL_LEG_DBG=2 时打印腿伺服参考/误差 */
+    static int leg_dbg2 = -1;
+    static int leg_dbg2_cnt = 0;
+    if (leg_dbg2 < 0) {
+        const char *e = getenv("RL_LEG_DBG");
+        leg_dbg2 = e ? atoi(e) : 0;
+    }
+    if (leg_dbg2 >= 2) {
+        leg_dbg2_cnt++;
+        if (leg_dbg2_cnt >= 500) {
+            leg_dbg2_cnt = 0;
+            printf("[LegRef] t=%.2f sw=%+.3f exL=%+.3f exR=%+.3f | "
+                   "ref[lf,lr,rf,rr]=[%+.3f,%+.3f,%+.3f,%+.3f] pos=[%+.3f,%+.3f,%+.3f,%+.3f]\n",
+                   s->sim_time, swing_ref, ext.left, ext.right,
+                   swing_ref - ext.left, 0.4f - swing_ref - ext.left,
+                   -0.1f - swing_ref + ext.right, -0.4f + swing_ref + ext.right,
+                   (float)s->lf_pos, (float)s->lr_pos,
+                   (float)s->rf_pos, (float)s->rr_pos);
+        }
+    }
 
     int jump_phase = balance_get_jump_phase();
-    if (jump_phase == 1 || jump_phase == 2) {
-        /* 跳跃下蹲/蹬伸: 腿执行器直接打扭矩(±5 -> ±250Nm/腿)，
-         * 用爆发力把整个车弹离地面，而不是位置伺服平滑顶起。 */
-        float jump_ext = (jump_phase == 1) ? JUMP_CROUCH_EXT : JUMP_LAUNCH_EXT;
+    if (jump_phase == 2) {
+        /* 蹬伸: 腿执行器直接打扭矩(±JUMP_TORQUE -> Nm)，
+         * 用爆发力把整个车弹离地面。姿态差动叠到扭矩上:
+         * roll 修正(左右腿对称)、pitch 修正(前后腿差动)、
+         * IMU 加速度方向修正(防前冲)。 */
+        float jump_ext = JUMP_LAUNCH_EXT;
         float lf_r = swing_ref - jump_ext;
         float lr_r = 0.4f - swing_ref - jump_ext;
         float rf_r = -0.1f - swing_ref + jump_ext;
@@ -213,21 +250,29 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
         float c_lr = (fabsf(lr_e) > 0.02f) ? ((lr_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
         float c_rf = (fabsf(rf_e) > 0.02f) ? ((rf_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
         float c_rr = (fabsf(rr_e) > 0.02f) ? ((rr_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
-        /* 下蹲准备阶段用满增益摆平车体，蹬伸阶段用半增益保持对称。 */
-        float roll_kp = (jump_phase == 1) ? JUMP_ROLL_KP : (0.5f * JUMP_ROLL_KP);
-        float roll_corr = roll_kp * (float)s->roll;
-        /* 到位死区: 关节已到目标附近就撤力，避免反向振荡。 */
-        /* 注: lf=左前 lr=左后 rf=右前 rr=右后；pitch 补偿分前/后，roll 分左/右。 */
-        s->ctrl[0] = clampf_runtime(c_lf - roll_corr, -10.0f, 10.0f);
-        s->ctrl[1] = clampf_runtime(c_lr - roll_corr, -10.0f, 10.0f);
-        s->ctrl[3] = clampf_runtime(c_rf + roll_corr, -10.0f, 10.0f);
-        s->ctrl[4] = clampf_runtime(c_rr + roll_corr, -10.0f, 10.0f);
+        float roll_corr = JUMP_ROLL_KP * (float)s->roll;
+        float pitch_corr = JUMP_PITCH_KP * (float)s->pitch;
+        float dir_corr = JUMP_DIR_KP * (float)s->acc[0];
+        /* 注: lf=左前 lr=左后 rf=右前 rr=右后；pitch 分前/后，roll 分左/右。 */
+        s->ctrl[0] = clampf_runtime(c_lf - roll_corr - pitch_corr - dir_corr, -10.0f, 10.0f);
+        s->ctrl[1] = clampf_runtime(c_lr - roll_corr + pitch_corr + dir_corr, -10.0f, 10.0f);
+        s->ctrl[3] = clampf_runtime(c_rf + roll_corr - pitch_corr - dir_corr, -10.0f, 10.0f);
+        s->ctrl[4] = clampf_runtime(c_rr + roll_corr + pitch_corr + dir_corr, -10.0f, 10.0f);
         return;
     }
 
     if (jump_phase == 3 || jump_phase == 4) {
         /* 落地软着陆: 腿负载大(触地)时转软弹簧-阻尼，腿让位吸能；
          * 空中(负载小)仍用正常伺服保持姿态。 */
+        if (jump_phase == 3) {
+            /* 空中姿态控制: 前后腿差动(swing)按 pitch 修正把车摆平,
+             * 左右腿差动(ext)按 roll 修正防侧翻。
+             * 符号: pitch 正(后仰) -> swing 减小让车头抬起回正,
+             * roll 正(右侧沉) -> 右腿伸/左腿收。 */
+            swing_ref += JUMP_AIR_PITCH_KP * (float)s->pitch;
+            ext.left  -= JUMP_AIR_ROLL_KP * (float)s->roll;
+            ext.right += JUMP_AIR_ROLL_KP * (float)s->roll;
+        }
         float load = fabsf((float)s->lf_torque) + fabsf((float)s->lr_torque)
                    + fabsf((float)s->rf_torque) + fabsf((float)s->rr_torque);
         float lf_ref = swing_ref - ext.left;
@@ -401,10 +446,64 @@ void robot_control_step(SensorState *s, double dt)
     BalanceSensorFrame frame = make_balance_frame(s);
     BalanceOutput out;
     balance_update_frame(&frame, dt, &out);
-    g_control.pitch_tau = out.wheel_tau;
-    g_control.yaw_tau = out.yaw_tau;
-
     copy_balance_debug(s, &out);
-    update_leg_servos(&g_control.low, s, out.leg_swing);
+
+    /* 控制器模式切换: 以 PID 三环输出为基线, supervisor 决定是否叠加
+     * LQR 扰动或由能量整形完全接管(见 controllers/supervisor/)。 */
+    ControlCmd cmd = {0};
+    cmd.wheel_tau = out.wheel_tau;
+    cmd.yaw_tau = out.yaw_tau;
+    cmd.leg_swing = out.leg_swing;
+    cmd.active = 1;
+    controller_supervisor_update(s, dt, &cmd);
+
+    /* RL 跳跃控制器: 空闲 active=0; 触发后 active=1, 直接输出全部 6 个
+     * 执行器力矩(跳跃期间完全接管, 不再叠加三环, 避免三环限制跳高)。
+     * 必须在腿伺服/轮混控之前调用(设置 s->rl_state 供限位放宽判断)。 */
+    RlJumpCmd rj;
+    rl_jump_controller_update(s, dt, &rj);
+
+    g_control.pitch_tau = cmd.wheel_tau;
+    g_control.yaw_tau = cmd.yaw_tau;
+
+    /* LQR/能量整形可能给出腿摆/腿长扰动: 通过 leg_extend/leg_side_extend
+     * 通道传给腿伺服, 与 PID 的 leg_swing 参考叠加。 */
+    if (cmd.leg_len != 0.0f || cmd.leg_len_diff != 0.0f) {
+        s->leg_extend += cmd.leg_len;
+        s->leg_side_extend += cmd.leg_len_diff;
+    }
+    update_leg_servos(&g_control.low, s, cmd.leg_swing);
     mix_wheel_outputs(s, dt);
+
+    /* 临时调试: RL_LEG_DBG=1 时每 0.5s 打印一次腿关节位置与虚拟坐标,
+     * 用于测量部署时三环作用下的腿位包络(校准训练随机化范围)。 */
+    static int leg_dbg = -1;
+    static int leg_dbg_cnt = 0;
+    if (leg_dbg < 0) {
+        const char *e = getenv("RL_LEG_DBG");
+        leg_dbg = e ? atoi(e) : 0;
+    }
+    if (leg_dbg) {
+        leg_dbg_cnt++;
+        if (leg_dbg_cnt >= 500) {
+            leg_dbg_cnt = 0;
+            float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
+            float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
+            float sw = 0.25f * ((lf - lr + 0.4f) + (0.3f - rf + rr));
+            float L = 0.5f * (0.4f - lf - lr);
+            float R = 0.5f * (rf + rr + 0.5f);
+            printf("[LegDbg] t=%.2f lf=%+.3f lr=%+.3f rf=%+.3f rr=%+.3f "
+                   "sw=%+.3f L=%+.3f R=%+.3f\n",
+                   s->sim_time, lf, lr, rf, rr, sw, L, R);
+        }
+    }
+
+    /* RL 直接力矩接管: ctrl = mix*base + (1-mix)*rl, 逐通道混合。
+     * ACTIVE 时 mix=0 纯 RL; PREP 时腿=强PD/轮=三环;
+     * FADEOUT 时 mix 0->1 渐变平滑交还三环。 */
+    if (rj.active) {
+        for (int i = 0; i < 6; i++)
+            s->ctrl[i] = rj.mix[i] * s->ctrl[i]
+                       + (1.0f - rj.mix[i]) * rj.ctrl[i];
+    }
 }

@@ -104,6 +104,7 @@ typedef struct {
     int fallen;                   /* 布尔值，已判定摔倒，轮扭矩停机。 */
     float pos_i;                  /* m*s，慢速里程计位置积分。 */
     float leg_swing;              /* rad，辅助回原点的腿摆偏置。 */
+    float leg_pos_i;              /* m*s，腿摆位置误差积分(消除慢速静差漂移)。 */
     float leg_extend;             /* rad，正值表示两侧虚拟腿同时伸长。 */
     float leg_extend_manual;      /* rad，GUI E/Q 手动腿长目标，正=缩短/降低。 */
     float leg_side_extend;        /* rad，正值表示左腿伸长、右腿缩短。 */

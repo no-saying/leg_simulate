@@ -39,12 +39,29 @@
         spin_v_pb = g_balance.body_v_filt - ((g_balance.body_v_filt > 0.0f) ? 1.20f : -1.20f);
         spin_v_pb = clampf_local(spin_v_pb, -0.80f, 0.80f);
     }
-    /* 俯仰平衡环保持最高频率，直接输出共模轮扭矩；位置控制只通过 g_balance.neutral 影响它。 */
+    /* 俯仰平衡环保持最高频率，直接输出共模轮扭矩；位置控制只通过 g_balance.neutral 影响它。
+     * 速度阻尼: 直接刹共模轮扭矩，不依赖目标俯仰角，所以 tp 收紧后仍能
+     * 刹住起步漂移；手动驾驶有速度指令时放松，避免拖慢 W/S 加速。 */
+    /* 速度阻尼按俯仰误差退让: 车体接近目标姿态(p_err≈0)时全力刹轮,
+     * 俯仰环正在抬身(p_err 大)时让位, 避免 10Nm 抬身扭矩被
+     * 2m/s 时的 10Nm 直刹完全抵消、车永远抬不起身(实测前冲翻车根因)。 */
+    float vel_damp_scale_pb = 1.0f - clampf_local(fabsf(p_err_pb) / 0.06f,
+                                                  0.0f, 1.0f);
+    float vel_damp_pb = SIMPLE_VEL_DAMP * vel_damp_scale_pb;
+    if (g_balance.manual_active && fabsf(g_balance.manual_v) >= 0.05f)
+        /* 手动时保留 60% 速度阻尼: 腿摆管加减速, 轮子仍要能刹住
+         * 启动/超速动量(0.3 太弱, 启动振荡 -2.4m/s 刹不住)。 */
+        vel_damp_pb *= 0.60f;
     float tau_cmd_pb = kp_pb * p_err_pb + kd_pb * g_balance.pitch_rate_filt
-                     - SIMPLE_VEL_DAMP * v_damp_pb
+                     - vel_damp_pb * v_damp_pb
                      - park_scale_pb * SIMPLE_PARK_VEL_DAMP * park_v_pb
                      - capture_scale_pb * SIMPLE_CAPTURE_DAMP * park_v_pb
                      - SIMPLE_SPIN_DAMP * spin_v_pb;
+    /* 空中弱化轮驱: 起跳后轮子离地, 平衡扭矩只会把轮子空转,
+     * 落地瞬间带着高轮速产生前冲(实测跳跃落地 vh 冲到 +3.3)。
+     * 空中把轮扭矩压到 20%, 落地后平衡恢复。 */
+    if (airborne_pb)
+        tau_cmd_pb *= 0.20f;
     /* 俯仰静差积分: 缓慢消除重轮下的残倾角(比例饱和导致轮子爬行/
      * 低频 rocking)。大倾角救车时清零避免积分与救车方向打架。 */
     if (abs_pitch_pb > 0.15f) {
@@ -193,7 +210,13 @@
             yaw_rate_ref_pb = SIMPLE_YAW_POS_KP * yaw_err_pb +
                               SIMPLE_YAW_KI * g_balance.yaw_i;
         }
-        yaw_rate_ref_pb = clampf_local(yaw_rate_ref_pb, -SIMPLE_YAW_RATE_MAX, SIMPLE_YAW_RATE_MAX);
+        /* 手动模式(含 T 键小陀螺 3.0rad/s)放开角速度参考限幅,
+         * auto 仍用 1.6rad/s 的保守上限。 */
+        float yaw_ref_max_pb = g_balance.manual_active
+                             ? SIMPLE_MANUAL_YAW_RATE_MAX
+                             : SIMPLE_YAW_RATE_MAX;
+        yaw_rate_ref_pb = clampf_local(yaw_rate_ref_pb,
+                                       -yaw_ref_max_pb, yaw_ref_max_pb);
         float yaw_rate_err_pb = yaw_rate + yaw_rate_ref_pb;
         float yaw_rate_kp_pb = g_balance.manual_active
                              ? SIMPLE_MANUAL_YAW_RATE_KP

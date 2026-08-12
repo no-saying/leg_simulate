@@ -24,7 +24,7 @@
 /* 应用层枚举: 执行器数量/自动平衡/每帧最大物理步数 */
 enum {
     ACTUATOR_COUNT = 6,
-    AUTO_BALANCE_STEP = 20,
+    AUTO_BALANCE_STEP = 0,      /* 平衡从第 0 步开启(与训练环境一致, 防启动瞬态倒车) */
     MAX_PHYS_STEPS_PER_FRAME = 20,
 };
 
@@ -56,6 +56,7 @@ typedef struct {
 extern int g_key_balance, g_key_lock, g_key_view, g_key_reset;
 extern int g_key_w, g_key_a, g_key_s, g_key_d;
 extern int g_key_extend, g_key_shorten;
+extern int g_key_spin;            /* T 键: 原地小陀螺 */
 extern int g_manual_prev_active;
 extern float g_manual_leg_target;
 extern double g_dash_sim_t;
