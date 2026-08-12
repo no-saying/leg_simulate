@@ -21,6 +21,10 @@ void controller_supervisor_init(void);
 /* 每控制步: 根据姿态/腿长选模式, 输出最终控制命令 */
 void controller_supervisor_update(const SensorState *s, double dt, ControlCmd *out);
 
+/* RL 接管期间置 1: supervisor 跳过"翻倒检测"自救(部署/训练一致),
+ * 三环/LQR 轮子仍正常工作, 只有自救状态机不介入。 */
+void controller_supervisor_set_rl_busy(int on);
+
 /* 当前模式(调试/日志) */
 CtrlMode controller_supervisor_mode(void);
 

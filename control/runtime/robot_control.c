@@ -46,6 +46,12 @@ typedef struct {
 } SidePair;
 
 static RobotControlRuntime g_control;
+static int g_rl_active = 0;          /* RL 接管标志(供 supervisor 跳自救) */
+
+void robot_control_set_rl_active(int on)
+{
+    g_rl_active = on ? 1 : 0;
+}
 
 void robot_control_reset(void)
 {
@@ -455,6 +461,7 @@ void robot_control_step(SensorState *s, double dt)
     cmd.yaw_tau = out.yaw_tau;
     cmd.leg_swing = out.leg_swing;
     cmd.active = 1;
+    controller_supervisor_set_rl_busy(g_rl_active);
     controller_supervisor_update(s, dt, &cmd);
 
     /* RL 跳跃控制器: 空闲 active=0; 触发后 active=1, 直接输出全部 6 个

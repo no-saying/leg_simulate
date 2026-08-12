@@ -9,4 +9,7 @@ void robot_control_step(SensorState *s, double dt);
  * 供训练环境每回合预热前调用, 避免控制器状态跨回合残留。 */
 void robot_control_reset(void);
 
+/* RL 接管期间置 1: supervisor 跳过翻倒自救(部署与训练一致), 其余照常 */
+void robot_control_set_rl_active(int on);
+
 #endif

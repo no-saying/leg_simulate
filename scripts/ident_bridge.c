@@ -57,6 +57,13 @@ void ident_warmup_init(void);
 void ident_warmup_step(const IdentFrame *f, double dt, float ctrl[6]);
 void ident_warmup_reset(void);
 
+/* RL 接管期间置 1: robot_control_step 里 supervisor 跳过翻倒自救,
+ * 三环/LQR 轮子照常(训练与部署一致)。 */
+void ident_set_rl_active(int on)
+{
+    robot_control_set_rl_active(on);
+}
+
 /* 回合级重置: 训练环境每回合预热前调用, 清空所有控制器静态状态
  * (balance 积分/滤波、supervisor 状态机、腿伺服 PID、RL 状态机),
  * 避免同一进程内连续训练回合的状态残留(会导致预热偶发极限环振荡)。 */

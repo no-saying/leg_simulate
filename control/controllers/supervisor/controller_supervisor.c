@@ -43,6 +43,7 @@ static float g_swing_cmd = 0.0f;  /* 腿摆平滑输出 */
 static float g_len_cmd = 0.0f;    /* 腿长平滑输出(正=收腿/降低, 负=伸长/升高) */
 static float g_tau_cmd = 0.0f;    /* 轮扭矩平滑输出 */
 static int  g_ready = 0;
+static int  g_rl_busy = 0;        /* RL 接管标志: 跳过翻倒检测自救 */
 
 static float clampf_sv(float v, float lo, float hi)
 {
@@ -58,9 +59,15 @@ void controller_supervisor_init(void)
     g_swing_cmd = 0.0f;
     g_len_cmd = 0.0f;
     g_tau_cmd = 0.0f;
+    g_rl_busy = 0;
     g_ready = 1;
     lqr_controller_init();
     energy_controller_init();
+}
+
+void controller_supervisor_set_rl_busy(int on)
+{
+    g_rl_busy = on ? 1 : 0;
 }
 
 CtrlMode controller_supervisor_mode(void)
@@ -93,13 +100,17 @@ void controller_supervisor_update(const SensorState *s, double dt, ControlCmd *o
     /* 跳跃/自救期间状态机不介入: 跳跃会大幅改变 pitch 和腿长,
      * 正常行驶的加速前倾也可能超过进入阈值, 不能误判为翻倒。
      * balance_get_jump_phase() 1=下蹲 2=蹬伸 3=空中 4=落地。 */
-    int jump_busy = (balance_get_jump_phase() != 0) || balance_get_self_right_active()
+    int jump_busy = g_rl_busy
+                    || (balance_get_jump_phase() != 0) || balance_get_self_right_active()
                     || rl_jump_controller_active();
 
     /* ================= 状态转移 ================= */
     switch (g_st) {
     case ST_IDLE: {
-        /* 翻倒检测: 大 pitch 且滚转不大(滚转大=侧翻, 轮子离地救不了) */
+        /* 自动前后翻自救暂时禁用(用户要求): 偶发误触发会在训练预热/
+         * 收腿阶段把车折腾翻。三环/LQR 轮子稳定不受影响。
+         * 如需恢复, 取消下面注释即可。 */
+        /*
         if (!jump_busy &&
             pitch_deg >= CTRL_ENERGY_ENTER_DEG && roll_deg < 25.0f) {
             g_dir = (pitch > 0.0f) ? 1 : -1;
@@ -109,6 +120,7 @@ void controller_supervisor_update(const SensorState *s, double dt, ControlCmd *o
             g_tau_cmd = 0.0f;
             printf("[SV] PREP dir=%+d pitch=%+.1f°\n", g_dir, pitch_deg);
         }
+        */
         break;
     }
     case ST_PREP: {

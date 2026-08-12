@@ -40,8 +40,8 @@
 
 /* PREP 收腿到最短(用户指定: 触发后先收到最短腿再执行跳跃) */
 #define RL_JUMP_PREP_EXT     0.25f    /* leg_extend_manual 极限收腿 */
-#define RL_JUMP_PREP_TIMEOUT 1.5f     /* 收腿最长时长 s */
-#define RL_JUMP_PREP_L_DONE  0.10f    /* 腿收到 L>=0.10 视为最短 */
+#define RL_JUMP_PREP_TIMEOUT 3.0f     /* 收腿最长时长 s(实测 1.5s 收不到位) */
+#define RL_JUMP_PREP_L_DONE  0.05f    /* 腿收到 L>=0.05(部署物理极限≈0.057) */
 
 /* 退出判定阈值 */
 #define RL_JUMP_TIMEOUT        3.0f    /* RL 全程窗口时长 s(与训练一致) */
@@ -71,6 +71,9 @@ static float  g_act[RL_JUMP_N_OUT] = {0};   /* 实际输出的 RL 动作 [-1,1] 
 static float  g_obs_h = 0.0f;          /* 观测高度增量(日志) */
 static float  g_max_h = 0.0f;          /* 本轮 ACTIVE 期间的最大高度增量 */
 static float  g_mix = 1.0f;            /* 交叉渐变权重(0=纯RL, 1=纯三环) */
+static int    g_prev_air = 0;          /* 上一帧离地标志(落地检测) */
+static int    g_landing = 0;           /* 落地瞬间标志 */
+static float  g_landing_t = 0.0f;      /* 落地后累计时间 */
 
 static void rl_jump_controller_init_inner(void)
 {
@@ -84,6 +87,9 @@ static void rl_jump_controller_init_inner(void)
     g_obs_h = 0.0f;
     g_max_h = 0.0f;
     g_mix = 1.0f;
+    g_prev_air = 0;
+    g_landing = 0;
+    g_landing_t = 0.0f;
 }
 
 void rl_jump_controller_init(void)
@@ -267,6 +273,26 @@ void rl_jump_controller_update(SensorState *s, double dt, RlJumpCmd *out)
                       + RL_JUMP_LP_ALPHA * a;
         }
         for (int i = 0; i < RL_JUMP_N_OUT; i++) g_act[i] = g_filt[i];
+        /* 地面: 左右腿差力矩修正 roll(与训练环境一致)——
+         * 哪边沉(roll>0 右侧沉), 右侧腿少发力/左侧多发力 -> τ_diff<0。
+         * obs[17]=roll_deg, obs[3]=roll_rate。 */
+        if (obs[33] < 0.5f) {
+            float aux_diff = -1.5f * obs[17] - 0.3f * obs[3];
+            /* 落地检测: 空中->地面, 落地后 0.3s 内 τ_diff 修正增强 */
+            if (g_prev_air) {
+                g_landing = 1;
+                g_landing_t = 0.0f;
+            }
+            if (g_landing) {
+                g_landing_t += dtf;
+                if (g_landing_t > 0.3f) g_landing = 0;
+                aux_diff = -4.0f * obs[17] - 0.3f * obs[3];
+            }
+            g_act[2] += aux_diff / RL_JUMP_TAU_DIFF;
+            if (g_act[2] > 1.0f) g_act[2] = 1.0f;
+            else if (g_act[2] < -1.0f) g_act[2] = -1.0f;
+        }
+        g_prev_air = (obs[33] > 0.5f) ? 1 : 0;
         out->active = 1;
         for (int i = 0; i < 6; i++) out->mix[i] = 0.0f;
         /* 分阶段混合(与训练环境 _step_ctrl 一致):
@@ -278,6 +304,12 @@ void rl_jump_controller_update(SensorState *s, double dt, RlJumpCmd *out)
             out->mix[5] = 1.0f;   /* 右轮 -> 三环 */
         }
         apply_action(out, g_act);
+        /* 空中: 轮子对姿态几乎无作用(角动量守恒), 固定为 0,
+         * 姿态轨迹由起跳瞬间规划决定(与训练环境一致)。 */
+        if (obs[33] > 0.5f) {
+            out->ctrl[2] = 0.0f;
+            out->ctrl[5] = 0.0f;
+        }
 
         /* 退出判定 */
         float pitch_deg = fabsf((float)(s->pitch * 57.29578));
