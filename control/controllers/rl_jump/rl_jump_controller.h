@@ -24,6 +24,7 @@
 /* RL 跳跃状态机阶段 */
 typedef enum {
     RL_JUMP_IDLE = 0,     /* 空闲: RL 不介入, 输出 0 */
+    RL_JUMP_PREP,         /* 准备: 收腿到最短, 轮子三环稳住 */
     RL_JUMP_ACTIVE,       /* 跳跃中: RL 直接控制全部执行器 */
     RL_JUMP_FADEOUT,      /* 退出: 与三环交叉渐变, 防切换冲击 */
 } RlJumpState;

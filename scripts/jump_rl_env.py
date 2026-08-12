@@ -62,15 +62,19 @@ XML = os.path.join(ROOT, "model", "COD-2026RoboMaster-Balance.xml")
 
 SW_NOM = 0.23          # 名义腿摆(仅用于参考, 新策略直接出力矩, 不再用位置伺服)
 NOM_HEIGHT = 0.085     # 观测相对高度基准
-TAU_L_SCALE = 250.0    # 腿长虚拟力矩量程 Nm(恢复起跳爆发力)
+TAU_L_SCALE = 150.0    # 腿长虚拟力矩量程 Nm(降低起跳力度, 高度可控防落地翻)
 TAU_SW_SCALE = 60.0    # 腿摆虚拟力矩量程 Nm
 TAU_DIFF_SCALE = 60.0  # 左右腿长差虚拟力矩量程 Nm
 LEG_GAIN = 50.0        # 腿执行器 gainprm
 # 电流通道归一化量程(电机侧力矩 Nm): 腿 ±250, 轮 ±100
 OBS_CUR_SCALE = np.array([250.0, 250.0, 100.0, 250.0, 250.0, 100.0])
 BRIDGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ident_bridge.so")
-WARMUP_RANGE = (1.0, 1.5)   # 三环预热时长随机范围 s(此窗口内三环稳定)
-EPISODE_S = 2.0             # RL 爆发窗口时长 s(不学长时间平衡)
+WARMUP_RANGE = (1.0, 1.5)   # 三环预热时长 s(只需稳定到平衡态,
+                            #  长时间漂移状态由 _randomize_takeover 注入,
+                            #  训练速度大幅提升)
+EPISODE_S = 3.0             # RL 全程窗口时长 s(起跳+空中+落地+恢复)
+RETRACT_S = 0.25            # 收腿到最短的 leg_extend_manual 指令
+RETRACT_DONE_L = 0.10       # 腿收到 L>=0.10 视为"最短腿"
 
 
 class IdentFrame(ctypes.Structure):
@@ -153,6 +157,7 @@ class JumpRLEnv(gym.Env):
             self._bridge.ident_warmup_step.argtypes = [
                 ctypes.POINTER(IdentFrame), ctypes.c_double,
                 ctypes.POINTER(ctypes.c_float * 6)]
+            self._bridge.ident_set_leg_len_direct.argtypes = [ctypes.c_float]
         self._setup_initial()
 
     def _fill_frame(self):
@@ -206,23 +211,23 @@ class JumpRLEnv(gym.Env):
         r = self.np_random
         d = self.data
         d.qpos[2] = r.uniform(0.07, 0.10)                 # 机体高度
-        euler = r.uniform(-0.20, 0.20, 3)                  # 姿态扰动(含偏航, ±11°)
+        euler = r.uniform(-0.10, 0.10, 3)                  # 姿态扰动(含偏航, ±6°)
         q = np.zeros(4)
         mujoco.mju_euler2Quat(q, euler, 'xyz')
         d.qpos[3:7] = q
-        d.qpos[0] = r.uniform(-0.25, 0.25)                 # 世界位置 x,y
-        d.qpos[1] = r.uniform(-0.25, 0.25)
+        d.qpos[0] = r.uniform(-1.0, 1.0)                   # 世界位置 x,y(漂移)
+        d.qpos[1] = r.uniform(-1.0, 1.0)
         # 腿位: 围绕默认位(脚离地/轮着地)小扰动, L∈[0.12,0.28]
         leg_bounds = [(-0.06, 0.08), (-0.06, 0.08),       # lf, lr
                       (-0.16, -0.04), (-0.06, 0.06)]      # rf, rr
         for adr, (lo, hi) in zip(self.leg_qpos, leg_bounds):
             d.qpos[adr] = r.uniform(lo, hi)
-        d.qpos[self.lw_qpos] = r.uniform(-10.0, 10.0)      # 轮位置(漂移积分)
-        d.qpos[self.rw_qpos] = r.uniform(-10.0, 10.0)
+        d.qpos[self.lw_qpos] = r.uniform(-15.0, 15.0)      # 轮位置(漂移积分)
+        d.qpos[self.rw_qpos] = r.uniform(-15.0, 15.0)
         d.qvel[0:3] = r.uniform(-1.0, 1.0, 3)              # 线速度(含 vz)
-        d.qvel[3:6] = r.uniform(-2.0, 2.0, 3)              # 角速度
-        d.qvel[self.lw_dof] += r.uniform(-10.0, 10.0)      # 轮速(漂移)
-        d.qvel[self.rw_dof] += r.uniform(-10.0, 10.0)
+        d.qvel[3:6] = r.uniform(-1.5, 1.5, 3)              # 角速度
+        d.qvel[self.lw_dof] += r.uniform(-6.0, 6.0)        # 轮速(漂移)
+        d.qvel[self.rw_dof] += r.uniform(-6.0, 6.0)
         d.ctrl[:] = 0.0
         mujoco.mj_forward(self.model, d)
 
@@ -378,12 +383,22 @@ class JumpRLEnv(gym.Env):
                 for _ in range(n):
                     self._step_warmup()
                 obs_tmp = self._get_obs()
-                # 更严的接管过滤: 姿态偏差小、轮速小、位置漂移小,
-                # 丢弃"三环还在自救/漂移剧烈"的接管状态。
+                # 接管过滤: 姿态 + 轮速合格才接受(丢弃收腿阶段翻车/轮速爆炸的回合)
                 w_max = max(abs(obs_tmp[11]), abs(obs_tmp[12]))
-                if (abs(obs_tmp[16]) < 6.0 and abs(obs_tmp[17]) < 4.0
-                        and w_max < 12.0 and abs(obs_tmp[25]) < 0.25):
+                if (abs(obs_tmp[16]) < 10.0 and abs(obs_tmp[17]) < 8.0
+                        and w_max < 20.0):
                     break
+            # 注入长时间漂移后的状态(位置/轮位置/轮速/姿态), 覆盖部署时
+            # 用户等很久才按空格的真实分布, 替代长预热, 加速训练。
+            self._randomize_takeover()
+            # 收腿到最短: 通过三环 leg_extend_manual 极限收腿,
+            # RL 统一从"最短腿"状态起跳(用户指定: 初始腿长不用管)。
+            self._bridge.ident_set_leg_len_direct(RETRACT_S)
+            for _ in range(int(1.5 / self.model.opt.timestep)):
+                self._step_warmup()
+                if self._get_obs()[5] > RETRACT_DONE_L:
+                    break
+            self._bridge.ident_set_leg_len_direct(0.0)
         else:
             self._randomize_takeover()
         self.step_count = 0
