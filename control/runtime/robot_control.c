@@ -344,13 +344,17 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
                     + LEG_V3_SERVO_KD * l_dot);
     float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_NOM)
                     + LEG_V3_SERVO_KD * r_dot);
-    /* 腿摆 sw 软锁: 死区内自由, 死区外拉回(防腿摆漂到前面"坐地") */
+    /* 腿摆 sw 软锁: 目标 = balance 输出的 swing_ref(含速度/位置环的
+     * 腿摆指令, 加减速时腿前后摆辅助; 由 leg_kin_v3_forward 保证单位一致)。
+     * 死区内自由(平衡依赖腿摆柔性), 死区外拉回防过度漂移。 */
     float sw_l = LEG_V3_SW_NOM + LEG_V3_J_S0 * (float)s->lf_pos
                                 + LEG_V3_J_S1 * (float)s->lr_pos;
     float sw_r = LEG_V3_SW_NOM - LEG_V3_J_S0 * (float)s->rf_pos
                                 - LEG_V3_J_S1 * (float)s->rr_pos;
-    float e_sw_l = sw_l - LEG_V3_SW_NOM;
-    float e_sw_r = sw_r - LEG_V3_SW_NOM;
+    float sw_ref_l = swing_ref;
+    float sw_ref_r = swing_ref;
+    float e_sw_l = sw_l - sw_ref_l;
+    float e_sw_r = sw_r - sw_ref_r;
     if (fabsf(e_sw_l) > LEG_V3_SW_DEAD)
         e_sw_l -= (e_sw_l > 0) ? LEG_V3_SW_DEAD : -LEG_V3_SW_DEAD;
     else

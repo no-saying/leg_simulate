@@ -166,7 +166,7 @@
  * 超出死区才拉回, 防止腿摆漂到前面/后面造成"坐地"姿态。 */
 #define LEG_V3_SW_KP   300.0f
 #define LEG_V3_SW_KD   10.0f
-#define LEG_V3_SW_DEAD 0.05f
+#define LEG_V3_SW_DEAD 0.02f   /* 死区减小: 让腿摆指令能实际推动腿 */
 #endif
 
 #endif

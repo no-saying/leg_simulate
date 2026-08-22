@@ -20,7 +20,7 @@
 #ifndef SIMPLE_ORIGIN_ENABLE
 /* 是否让里程计误差参与目标俯仰角规划。关闭后只做平衡和速度阻尼，不主动回原点。 */
 #if MODEL_V3
-#define SIMPLE_ORIGIN_ENABLE 0   /* v3 调参期: 关掉位置/中性角自适应 */
+#define SIMPLE_ORIGIN_ENABLE 1   /* v3: 位置环驱动腿摆(腿要有动作) */
 #else
 #define SIMPLE_ORIGIN_ENABLE 1
 #endif

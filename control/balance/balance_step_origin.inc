@@ -235,7 +235,14 @@
                    : 0.0f;
         leg_ref_pb = clampf_local(leg_ref_pb, -SIMPLE_ORIGIN_LEG_MAX, SIMPLE_ORIGIN_LEG_MAX);
         g_balance.leg_pos_i = 0.0f;   /* 手动时清掉 auto 位置积分 */
+#if MODEL_V3
+    } else if (SIMPLE_ORIGIN_ENABLE && g_balance.run_time > 1.5f &&
+               abs_pitch_pb < 0.35f) {
+        /* v3: 自然平衡偏角约 12°, 放宽 pitch 门控让位置环驱动腿摆
+         * (否则站着时腿摆指令被切断 -> "腿没动")。 */
+#else
     } else if (SIMPLE_ORIGIN_ENABLE && g_balance.run_time > 2.0f && abs_pitch_pb < 0.17f) {
+#endif
         /* 腿摆位置环不依赖短窗口 return_ok: 车一漂移就要摆腿纠正,
          * 否则漂移过程里里程计窗口失效会让腿摆失联、只剩慢速 tp。 */
         float pos_err_pb = g_balance.pos - g_balance.hold_pos;
