@@ -221,12 +221,11 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
 {
     SidePair ext = clamp_leg_extension(s, s->leg_extend, s->leg_side_extend);
 #if MODEL_V3
-    /* v3 反解: 虚拟(sw 偏差 m, 左/右腿长偏差 m) -> 4 驱动关节目标。
-     * swing_ref 是含名义值的绝对摆动(m), ext 是腿长偏差(m)。 */
-    float sw_dev = swing_ref - BALANCE_LEG_SW_NOM;
-    float lf_r, lr_r, rf_r, rr_r;
-    leg_kin_v3_inverse(sw_dev, ext.left, ext.right,
-                       &lf_r, &lr_r, &rf_r, &rr_r);
+    /* v3: 直接锁虚拟腿长 L(保持车高), 腿摆 sw 自由。
+     * 直接锁关节角会与平衡冲突(轻闭链机构), 锁 L 只提供竖直支撑力。
+     * 控制量仅用于调试打印, 实际输出在下方 v3 分支计算。 */
+    float lf_r = 0.0f, lr_r = 0.0f, rf_r = 0.0f, rr_r = 0.0f;
+    (void)ext;
 #else
     float lf_r = swing_ref - ext.left;
     float lr_r = 0.4f - swing_ref - ext.left;
@@ -327,21 +326,52 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
     }
 
 #if MODEL_V3
-    /* v3: 直接位置伺服(1kHz, P+速度阻尼)。
-     * 旧 LegJointUpdate 的微分先行+采样分频(angle_div=5 但 dt=1ms)在
-     * 轻闭链机构上正反馈自激(实测腿 0.5rad/5ms 甩飞), v3 绕开该 PID,
-     * 与 Python 辨识扫参(硬位置伺服)一致。 */
-    s->ctrl[0] = clampf_runtime(LEG_V3_SERVO_KP * (lf_r - (float)s->lf_pos)
-                                - LEG_V3_SERVO_KD * (float)s->lf_vel,
+    /* v3: 锁虚拟腿长 L(保持车高), 腿摆 sw 自由。
+     * 直接锁关节角会与平衡冲突(轻闭链机构, 实测 KPL>=1 都翻车);
+     * 锁 L 只提供竖直支撑力(车重 23.5N), 不影响 pitch 平衡。
+     *   L  = L_NOM + J_L0*lf + J_L1*lr (左), 右腿镜像
+     *   tauL = -KP_L*(L-L_NOM) - KD_L*Ldot   (虚拟竖直力)
+     *   关节 ctrl = J_L*tauL / LEG_GAIN(50) */
+    float leg_sw_dbg, leg_l, leg_r;
+    leg_kin_v3_forward((float)s->lf_pos, (float)s->lr_pos,
+                       (float)s->rf_pos, (float)s->rr_pos,
+                       &leg_sw_dbg, &leg_l, &leg_r);
+    float sw_dot_dbg, l_dot, r_dot;
+    leg_kin_v3_velocities((float)s->lf_vel, (float)s->lr_vel,
+                          (float)s->rf_vel, (float)s->rr_vel,
+                          &sw_dot_dbg, &l_dot, &r_dot);
+    float tau_l = -(LEG_V3_SERVO_KP * (leg_l - LEG_V3_L_NOM)
+                    + LEG_V3_SERVO_KD * l_dot);
+    float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_NOM)
+                    + LEG_V3_SERVO_KD * r_dot);
+    /* 腿摆 sw 软锁: 死区内自由, 死区外拉回(防腿摆漂到前面"坐地") */
+    float sw_l = LEG_V3_SW_NOM + LEG_V3_J_S0 * (float)s->lf_pos
+                                + LEG_V3_J_S1 * (float)s->lr_pos;
+    float sw_r = LEG_V3_SW_NOM - LEG_V3_J_S0 * (float)s->rf_pos
+                                - LEG_V3_J_S1 * (float)s->rr_pos;
+    float e_sw_l = sw_l - LEG_V3_SW_NOM;
+    float e_sw_r = sw_r - LEG_V3_SW_NOM;
+    if (fabsf(e_sw_l) > LEG_V3_SW_DEAD)
+        e_sw_l -= (e_sw_l > 0) ? LEG_V3_SW_DEAD : -LEG_V3_SW_DEAD;
+    else
+        e_sw_l = 0.0f;
+    if (fabsf(e_sw_r) > LEG_V3_SW_DEAD)
+        e_sw_r -= (e_sw_r > 0) ? LEG_V3_SW_DEAD : -LEG_V3_SW_DEAD;
+    else
+        e_sw_r = 0.0f;
+    float tau_sw_l = -(LEG_V3_SW_KP * e_sw_l + LEG_V3_SW_KD * sw_dot_dbg);
+    float tau_sw_r = -(LEG_V3_SW_KP * e_sw_r + LEG_V3_SW_KD * sw_dot_dbg);
+    s->ctrl[0] = clampf_runtime((LEG_V3_J_L0 * tau_l + LEG_V3_J_S0 * tau_sw_l)
+                                / LEG_V3_LEG_GAIN,
                                 -10.0f, 10.0f);
-    s->ctrl[1] = clampf_runtime(LEG_V3_SERVO_KP * (lr_r - (float)s->lr_pos)
-                                - LEG_V3_SERVO_KD * (float)s->lr_vel,
+    s->ctrl[1] = clampf_runtime((LEG_V3_J_L1 * tau_l + LEG_V3_J_S1 * tau_sw_l)
+                                / LEG_V3_LEG_GAIN,
                                 -10.0f, 10.0f);
-    s->ctrl[3] = clampf_runtime(LEG_V3_SERVO_KP * (rf_r - (float)s->rf_pos)
-                                - LEG_V3_SERVO_KD * (float)s->rf_vel,
+    s->ctrl[3] = clampf_runtime((-LEG_V3_J_L0 * tau_r - LEG_V3_J_S0 * tau_sw_r)
+                                / LEG_V3_LEG_GAIN,
                                 -10.0f, 10.0f);
-    s->ctrl[4] = clampf_runtime(LEG_V3_SERVO_KP * (rr_r - (float)s->rr_pos)
-                                - LEG_V3_SERVO_KD * (float)s->rr_vel,
+    s->ctrl[4] = clampf_runtime((-LEG_V3_J_L1 * tau_r - LEG_V3_J_S1 * tau_sw_r)
+                                / LEG_V3_LEG_GAIN,
                                 -10.0f, 10.0f);
 #else
     LegJointSetRef(&low->lf, lf_r);

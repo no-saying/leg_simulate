@@ -19,6 +19,7 @@
 #include "telemetry.h"
 
 void keyboard_cb(GLFWwindow *window, int key, int scancode, int action, int mods);
+void window_focus_cb(GLFWwindow *window, int focused);
 
 static void apply_camera_preset(GuiRuntime *gui);
 
@@ -41,6 +42,7 @@ static int gui_init(GuiRuntime *gui, const mjModel *model)
 
     glfwMakeContextCurrent(gui->window);
     glfwSetKeyCallback(gui->window, keyboard_cb);
+    glfwSetWindowFocusCallback(gui->window, window_focus_cb);
     glfwSwapInterval(0);
 
     mjv_defaultCamera(&gui->camera);

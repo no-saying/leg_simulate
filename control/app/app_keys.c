@@ -95,3 +95,20 @@ void keyboard_cb(GLFWwindow *window, int key, int scancode, int action, int mods
         if (key == GLFW_KEY_Q) dashcam_log_event(g_dash_sim_t, "Q", pressed ? "PRESS" : "RELEASE", wall_t);
     }
 }
+
+/* 窗口失焦回调: GLFW 失焦后收不到按键 RELEASE, W/A/S/D 状态会卡死
+ * (车一直动、像"吞键盘"), 失焦时统一清零, 焦点回来需重新按键。 */
+void window_focus_cb(GLFWwindow *window, int focused)
+{
+    (void)window;
+    if (!focused) {
+        g_key_w = 0;
+        g_key_a = 0;
+        g_key_s = 0;
+        g_key_d = 0;
+        g_key_extend = 0;
+        g_key_shorten = 0;
+        g_key_spin = 0;
+        balance_set_manual(0.0f, 0.0f, 0);
+    }
+}

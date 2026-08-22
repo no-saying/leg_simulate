@@ -44,7 +44,7 @@
  * v3 新模型(轮轴同向、安装矩阵补偿)俯仰符号与旧模型相反:
  * 扫参实测 tau = -KP*pitch - KD*pitch_rate 才能稳定站立。 */
 #if MODEL_V3
-#define SIMPLE_PITCH_KP (-120.0f)
+#define SIMPLE_PITCH_KP (-40.0f)
 #else
 #define SIMPLE_PITCH_KP 240.0f
 #endif
@@ -54,7 +54,7 @@
 /* 俯仰角速度 D 增益。调大: 阻尼更强，压掉目标俯仰低周摇摆引起的
  * pitch 过冲(实测 tp=2.4° 时 pitch 冲到 3.1°)；过大: 放大陀螺噪声。 */
 #if MODEL_V3
-#define SIMPLE_PITCH_KD (-20.0f)
+#define SIMPLE_PITCH_KD (-12.0f)
 #else
 #define SIMPLE_PITCH_KD 85.0f
 #endif
@@ -106,7 +106,7 @@
  * (漂移 1m/s 时 5Nm 前驱刹车 vs 俯仰误差 -5Nm 抬身, 净扭矩≈0)。
  * 抬身瞬间该阻尼按俯仰误差自动退让, 见 balance_step_pitch_yaw.inc。 */
 #if MODEL_V3
-#define SIMPLE_VEL_DAMP 0.0f   /* v3 调参期: 速度阻尼符号/增益待重标定 */
+#define SIMPLE_VEL_DAMP 2.0f   /* v3: 轮速符号已修正, 恢复速度阻尼 */
 #else
 #define SIMPLE_VEL_DAMP 1.5f
 #endif
@@ -134,7 +134,7 @@
 #ifndef SIMPLE_TAU_START
 /* 启动早期共模扭矩限幅，单位 Nm；重轮下 72 会让轮子打滑级联，降到 24。 */
 #if MODEL_V3
-#define SIMPLE_TAU_START 100.0f
+#define SIMPLE_TAU_START 8.0f    /* v3: 基础平衡定型 */
 #else
 #define SIMPLE_TAU_START 72.0f
 #endif
@@ -143,7 +143,7 @@
 #ifndef SIMPLE_TAU_RUN
 /* 正常运行共模扭矩限幅，单位 Nm。 */
 #if MODEL_V3
-#define SIMPLE_TAU_RUN 100.0f
+#define SIMPLE_TAU_RUN 8.0f
 #else
 #define SIMPLE_TAU_RUN 72.0f
 #endif
@@ -179,7 +179,11 @@
 
 #ifndef SIMPLE_YAW_SIGN
 /* 偏航输出符号修正。若偏航越控越偏，首先检查这个符号。 */
+#if MODEL_V3
+#define SIMPLE_YAW_SIGN -1.0f   /* v3 标定: 差速左大->yaw 负方向 */
+#else
 #define SIMPLE_YAW_SIGN 1.0f
+#endif
 #endif
 
 #ifndef SIMPLE_YAW_KP
@@ -201,7 +205,7 @@
 /* 偏航差动扭矩最大值，单位 Nm；最终还会被俯仰扭矩余量门控。
  * v3 新模型差速/陀螺符号未标定前先关闭, 防止差速正反馈把车甩翻。 */
 #if MODEL_V3
-#define SIMPLE_YAW_MAX 0.0f   /* yaw 环符号未标定, 先关 */
+#define SIMPLE_YAW_MAX 0.0f   /* 先验证纯 pitch */
 #else
 #define SIMPLE_YAW_MAX 1.2f
 #endif
@@ -248,7 +252,7 @@
  */
 #ifndef ROLL_STAB_KP
 #if MODEL_V3
-#define ROLL_STAB_KP 0.0f      /* roll 环待重标定, 先关 */
+#define ROLL_STAB_KP 0.0f      /* 分开验证: 先只开 yaw */
 #else
 #define ROLL_STAB_KP 8.0f
 #endif

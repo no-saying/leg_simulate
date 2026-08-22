@@ -194,8 +194,14 @@
                                    SIMPLE_WHEEL_CAPTURE_NEUTRAL_MAX);
     }
 #endif
+#if MODEL_V3
+    /* v3 调参期: 固定中性角, 不做位置/速度自适应(旧模型的里程计/位置环
+     * 符号未标定, neutral 漂移会把 pitch 环推成恒向猛冲 -> 翻滚)。 */
+    neutral_pb = SIMPLE_BASE_NEUTRAL;
+#else
     /* 近场直接扭矩模式里目标俯仰只慢速跟随当前角度（稳定但不主动仰身），
      * 避免目标俯仰阶跃造成的反向冲量；远场仍用快滤波保证回程响应。 */
+#endif
     float neutral_tau_pb = (g_balance.wheel_capture_dir != 0.0f) ? 0.030f
                          : (g_balance.origin_creep > 0.5f ? 0.350f
                                                           : SIMPLE_NEUTRAL_TAU);

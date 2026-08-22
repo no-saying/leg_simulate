@@ -154,11 +154,19 @@
 #endif
 
 #ifndef LEG_V3_SERVO_KP
-/* v3 直接腿位置伺服: ctrl = KP*(ref-pos) - KD*vel, 1kHz。
- * 实测硬锁(80)让伺服饱和打满、机体高频振动触发 impact 门控全关。
- * v3 用软保持(自由腿即能平衡), 只防塌陷到极限。 */
-#define LEG_V3_SERVO_KP 80.0f
-#define LEG_V3_SERVO_KD 4.0f
+/* v3 腿伺服(锁虚拟腿长): 直接锁关节角会与平衡冲突(轻闭链机构),
+ * 改为锁虚拟腿长 L(保持车高, 提供竖直支撑力), 腿摆 sw 自由。
+ *   tauL = -KP_L*(L-L_NOM) - KD_L*Ldot   (虚拟竖直力)
+ *   关节 ctrl = J_L * tauL / 50
+ * 标定: KP_L=2000 KD_L=80 时 L∈[0.078,0.093] 且 15s 平衡稳定。 */
+#define LEG_V3_SERVO_KP 2000.0f
+#define LEG_V3_SERVO_KD 80.0f
+#define LEG_V3_LEG_GAIN 50.0f
+/* 腿摆 sw 软锁(死区): 偏差小于死区时腿摆自由(平衡依赖腿摆柔性),
+ * 超出死区才拉回, 防止腿摆漂到前面/后面造成"坐地"姿态。 */
+#define LEG_V3_SW_KP   300.0f
+#define LEG_V3_SW_KD   10.0f
+#define LEG_V3_SW_DEAD 0.05f
 #endif
 
 #endif
