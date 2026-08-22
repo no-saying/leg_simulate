@@ -10,6 +10,7 @@ SRCS = app/controller.c \
        app/app_sim.c app/app_keys.c app/app_headless.c app/app_gui.c \
        balance/balance.c balance/balance_api.c balance/balance_util.c \
        balance/balance_core.c \
+       balance/leg_kin_v3.c \
        controllers/lqr/lqr_controller.c \
        controllers/energy/energy_controller.c \
        controllers/supervisor/controller_supervisor.c \
@@ -36,6 +37,7 @@ run: ../controller
 PORTABLE_SRCS = balance/balance.c \
                 lowlevel/pid.c lowlevel/wheel_t.c lowlevel/leg_t.c \
                 balance/balance_api.c balance/balance_util.c balance/balance_core.c \
+                balance/leg_kin_v3.c \
                 controllers/lqr/lqr_controller.c \
                 controllers/energy/energy_controller.c \
                 controllers/supervisor/controller_supervisor.c \

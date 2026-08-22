@@ -18,6 +18,7 @@
 #include "config_controllers.h"
 #include "lqr_pitch_models.h"
 #include "lqr_roll_models.h"
+#include "leg_kin_v3.h"
 
 /* 输出限幅: 防止启动暂态/分段切换时 LQR 扰动过大推翻车体 */
 
@@ -57,14 +58,30 @@ float lqr_controller_roll_out(void)  { return g_roll_out; }
  * leg_len/leg_len_rate/wheel_v, 严格对齐 split_models.py 的 PITCH_COLS。 */
 static void build_pitch_state(const SensorState *s, float x[LQR_P_STATE])
 {
-    const float SW_NOM = 0.23f;   /* 必须与 balance.h BALANCE_LEG_SW_NOM 一致 */
-    const float R = 0.058f;       /* 轮半径 m */
-
     float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
     float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
     float lfv = (float)s->lf_vel, lrv = (float)s->lr_vel;
     float rfv = (float)s->rf_vel, rrv = (float)s->rr_vel;
 
+#if MODEL_V3
+    const float R = WHEEL_RADIUS;
+    float sw, leg_l, leg_r;
+    leg_kin_v3_forward(lf, lr, rf, rr, &sw, &leg_l, &leg_r);
+    float sw_dot, l_dot, r_dot;
+    leg_kin_v3_velocities(lfv, lrv, rfv, rrv, &sw_dot, &l_dot, &r_dot);
+    float left_wheel_v = (float)s->lw_vel * R;
+    float right_wheel_v = (float)s->rw_vel * R;
+
+    x[0] = (float)s->pitch;
+    x[1] = (float)s->gyro[1];
+    x[2] = sw - BALANCE_LEG_SW_NOM;
+    x[3] = sw_dot;
+    x[4] = 0.5f * (leg_l + leg_r);
+    x[5] = 0.5f * (l_dot + r_dot);
+    x[6] = 0.5f * (left_wheel_v + right_wheel_v);
+#else
+    const float SW_NOM = 0.23f;   /* 必须与 balance.h BALANCE_LEG_SW_NOM 一致 */
+    const float R = 0.058f;       /* 轮半径 m */
     float left_swing = 0.5f * (lf - lr + 0.4f);
     float right_swing = 0.5f * (rr - rf + 0.3f);
     float left_len = 0.5f * (0.4f - lf - lr);
@@ -83,12 +100,31 @@ static void build_pitch_state(const SensorState *s, float x[LQR_P_STATE])
     x[4] = 0.5f * (left_len + right_len);
     x[5] = 0.5f * (left_ext_dot + right_ext_dot);
     x[6] = 0.5f * (left_wheel_v + right_wheel_v);
+#endif
 }
 
 /* roll 子系统状态(5 维): roll/roll_rate/leg_len_diff/leg_len_diff_rate/
  * wheel_diff_v, 严格对齐 split_models.py 的 ROLL_COLS。 */
 static void build_roll_state(const SensorState *s, float x[LQR_R_STATE])
 {
+#if MODEL_V3
+    const float R = WHEEL_RADIUS;
+    float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
+    float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
+    float lfv = (float)s->lf_vel, lrv = (float)s->lr_vel;
+    float rfv = (float)s->rf_vel, rrv = (float)s->rr_vel;
+    float sw, leg_l, leg_r;
+    leg_kin_v3_forward(lf, lr, rf, rr, &sw, &leg_l, &leg_r);
+    float sw_dot, l_dot, r_dot;
+    leg_kin_v3_velocities(lfv, lrv, rfv, rrv, &sw_dot, &l_dot, &r_dot);
+    float left_wheel_v = (float)s->lw_vel * R;
+    float right_wheel_v = (float)s->rw_vel * R;
+    x[0] = (float)s->roll;
+    x[1] = (float)s->gyro[0];
+    x[2] = leg_l - leg_r;
+    x[3] = l_dot - r_dot;
+    x[4] = 0.5f * (left_wheel_v - right_wheel_v);
+#else
     const float R = 0.058f;
     float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
     float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
@@ -106,6 +142,7 @@ static void build_roll_state(const SensorState *s, float x[LQR_R_STATE])
     x[2] = left_len - right_len;
     x[3] = left_ext_dot - right_ext_dot;
     x[4] = 0.5f * (left_wheel_v - right_wheel_v);
+#endif
 }
 
 /* 按腿长选段 */

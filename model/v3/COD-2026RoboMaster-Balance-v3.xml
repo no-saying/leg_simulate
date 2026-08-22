@@ -1,0 +1,199 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="generated_robot">
+  <compiler angle="radian" eulerseq="xyz" autolimits="true" balanceinertia="true" boundinertia="1e-8" />
+  <option timestep="0.001" gravity="0 0 -9.81" />
+  <visual>
+    <global realtime="1" />
+    <quality shadowsize="4096" offsamples="2" />
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6" active="1" />
+  </visual>
+  <default>
+    <geom contype="1" conaffinity="1" material="alu" />
+  </default>
+  <asset>
+    <material name="plastic" rgba="0.35 0.35 0.38 1" specular="0.3" reflectance="0.1" shininess="0.3" />
+    <material name="rubber" rgba="0.15 0.15 0.15 1" specular="0.1" reflectance="0.05" shininess="0.1" />
+    <material name="alu" specular="0.75" reflectance="0.4" shininess="0.5" />
+    <material name="plane_mat" texture="plane" reflectance="0.2" />
+    <texture name="plane" type="2d" builtin="checker" rgb1="0.1 0.1 0.1" rgb2="0.9 0.9 0.9" width="512" height="512" mark="cross" markrgb="0 0 0" />
+    <mesh name="part_001_body" file="meshes/part_001_body.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_014_claf_link0_1" file="meshes/part_014_claf_link0_1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_013_claf_link1_2" file="meshes/part_013_claf_link1_2.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_012_claf_link2_3" file="meshes/part_012_claf_link2_3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_011_claf_link3_4" file="meshes/part_011_claf_link3_4.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_015_thigh_link0_1_right" file="meshes/part_015_thigh_link0_1_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_010_claf_link4_5" file="meshes/part_010_claf_link4_5.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_009_v3" file="meshes/part_009_v3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_002_claf_link0_1" file="meshes/part_002_claf_link0_1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_003_claf_link1_2" file="meshes/part_003_claf_link1_2.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_004_claf_link2_3" file="meshes/part_004_claf_link2_3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_005_claf_link3_4" file="meshes/part_005_claf_link3_4.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_006_claf_link4_5" file="meshes/part_006_claf_link4_5.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_008_v3" file="meshes/part_008_v3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_007_thigh_link0_1" file="meshes/part_007_thigh_link0_1.stl" scale="0.001 0.001 0.001" />
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="10 10 0.05" pos="0 0 -0.152" material="plane_mat" friction="1.5 0.01 0.01" />
+    <body name="robot_root" pos="0 0 0" quat="0.70710678 0.70710678 0 0">
+      <freejoint /><body name="base_link" pos="0 0 0">
+        <site name="imu" pos="0 0 0.02" size="0.005" />
+        <inertial pos="0.008521883 -0.001231235 3.066043e-05" mass="1.4329276" quat="0.99974325 0.0001156263 0.0016052022 0.022601751" diaginertia="0.004215494 0.0089082894 0.0064478305" />
+        <geom name="base_link_mesh_1" type="mesh" mesh="part_001_body" pos="-0.017706299 -0.0472627 -0.000125" euler="0 0 0" group="1" />
+        <body name="Left_front_link" pos="-0.017706299 0.01959563 0.097375">
+          <joint name="Left_front_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.02" />
+          <inertial pos="-0.0027583996 -0.0007033064 -0.00076306946" mass="0.030158732" quat="0.94195817 0.039202855 -0.31169863 0.11841411" diaginertia="1.0259316e-05 1.1798812e-05 6.1812957e-06" />
+          <geom name="L_claf_link_0_mesh_1" type="mesh" mesh="part_014_claf_link0_1" pos="0 -0.06685833 -0.0975" euler="0 0 0" group="1" />
+          <body name="L_claf_link_1" pos="-0.048445063 -0.012372382 0.0247">
+            <joint name="L_claf_link_1_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+            <inertial pos="0.024445011 -0.017426463 0.0041561352" mass="0.003949642" quat="0.9448177 0.058280593 -0.019847502 -0.32175917" diaginertia="6.8687493e-08 2.353799e-06 2.3950375e-06" />
+            <geom name="L_claf_link_1_mesh_1" type="mesh" mesh="part_013_claf_link1_2" pos="0.048445063 -0.054485948 -0.1222" euler="0 0 0" group="1" />
+            <body name="L_claf_link_2" pos="0.047531124 -0.03661683 0">
+              <joint name="L_claf_link_2_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+              <inertial pos="0.037691835 0.030506765 -0.0027263465" mass="0.0063747796" quat="0.92995212 0.00088924654 0.00052804076 0.36767918" diaginertia="3.9645394e-07 5.7073099e-06 6.0769019e-06" />
+              <site name="closure_001_a_site" type="sphere" pos="0.048863816 0.034818493 -0.00875" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+              <geom name="L_claf_link_2_mesh_1" type="mesh" mesh="part_012_claf_link2_3" pos="0.00091393913 -0.017869118 -0.1222" euler="0 0 0" group="1" />
+              <body name="L_Claf_link_3" pos="0.066113407 0.065272583 -0.0052" euler="3.1415927 0 0">
+                <joint name="L_Claf_link_3_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+                <inertial pos="0.029359355 0.0069833014 0.0043621634" mass="0.0039705665" quat="0.98901481 -0.060485917 -0.0083863243 0.13461366" diaginertia="6.8905956e-08 2.3727339e-06 2.4140886e-06" />
+                <geom name="L_Claf_link_3_mesh_1" type="mesh" mesh="part_011_claf_link3_4" pos="-0.065199468 0.083141702 0.117" euler="-3.1415927 0 0" group="1" />
+                <body name="L_Claf_link_4" pos="0.057822699 0.016016726 0.0002">
+                  <joint name="L_Claf_link_4_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+                  <inertial pos="-0.076260043 0.07214868 -0.0027075004" mass="0.022393167" quat="0.9469092 -3.1768962e-05 9.620736e-05 -0.32150109" diaginertia="4.8639531e-06 7.4194387e-05 7.8964728e-05" />
+                  <site name="closure_002_a_site" type="sphere" pos="-0.017532437 0.031442228 -0.00215" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+                  <geom name="L_Claf_link_4_mesh_1" type="mesh" mesh="part_010_claf_link4_5" pos="-0.12302217 0.067124976 0.1168" euler="-3.1415927 0 0" group="1" />
+                  <body name="Left_Wheel_link" pos="-0.12127588 0.10641754 -0.0027" euler="-3.1415927 0 0">
+                    <joint name="Left_Wheel_joint" type="hinge" pos="0 0 0" axis="0 0 1" armature="0.002" damping="0.08" />
+                    <inertial pos="-9.3310755e-05 -0.00023568774 0.015289824" mass="0.4" quat="0.9918946 0.0018174106 -0.0011712305 -0.12704497" diaginertia="0.00022041704 0.00022188682 0.00031274034" />
+                    <geom name="L_Wheel_mesh_1" type="mesh" mesh="part_009_v3" pos="-0.0017462873 0.039292568 -0.1195" euler="0 0 0" group="1" />
+                    <geom name="L_Wheel_collision" type="cylinder" pos="0 0 0" size="0.043 0.030" zaxis="0 0 1" material="rubber" friction="2.0 2.0 0.02" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="Left_rear_link" pos="-0.017706299 0.01959563 0.097375">
+          <joint name="Left_rear_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.02" />
+          <inertial pos="0.023305887 -0.0062977831 0.009994429" mass="0.0296825" quat="0.99173504 0.00075535441 -0.032349465 -0.12415537" diaginertia="5.5994086e-06 4.6648811e-05 5.0801497e-05" />
+          <site name="closure_001_b_site" type="sphere" pos="0.047949877 -0.014170719 0.01595" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <site name="closure_002_b_site" type="sphere" pos="0.10548973 -0.031175581 0.02145" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <geom name="L_Thigh_mesh_1" type="mesh" mesh="part_015_thigh_link0_1_right" pos="0 -0.06685833 -0.0975" euler="0 0 0" group="1" />
+        </body>
+        <body name="Right_front_link" pos="-0.017706299 0.01959563 -0.097625" euler="3.1415927 0 0">
+          <joint name="Right_front_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.02" />
+          <inertial pos="-0.0027578427 0.00070548702 -0.0007630695" mass="0.030158732" quat="0.94196577 -0.039145429 -0.31170584 -0.1183537" diaginertia="1.0259316e-05 1.1798812e-05 6.1812957e-06" />
+          <geom name="R_Claf_link_0_mesh_1" type="mesh" mesh="part_002_claf_link0_1" pos="0 0.06685833 -0.0975" euler="-3.1415927 0 0" group="1" />
+          <body name="R_Claf_link_1" pos="-0.048445063 0.012372382 0.0245" euler="-3.1415927 0 0">
+            <joint name="R_Claf_link_1_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+            <inertial pos="0.023086132 -0.019190381 -0.0043561351" mass="0.0039496417" quat="0.94483414 0.058281576 -0.019844604 -0.3217109" diaginertia="6.8687486e-08 2.3537989e-06 2.3950374e-06" />
+            <geom name="R_Claf_link_1_mesh_1" type="mesh" mesh="part_003_claf_link1_2" pos="0.048445063 -0.054485948 0.122" euler="0 0 0" group="1" />
+            <body name="R_Claf_link_2" pos="0.047531124 -0.03661683 -0.004">
+              <joint name="R_Claf_link_2_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+              <inertial pos="0.037691835 0.030506765 0.0064736535" mass="0.0063747796" quat="0.92995212 0.00088924654 0.00052804076 0.36767918" diaginertia="3.9645394e-07 5.7073099e-06 6.0769019e-06" />
+              <site name="closure_003_a_site" type="sphere" pos="0.048863816 0.034818493 0.012" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+              <geom name="R_Claf_link_2_mesh_1" type="mesh" mesh="part_004_claf_link2_3" pos="0.00091393913 -0.017869118 0.126" euler="0 0 0" group="1" />
+              <body name="R_Claf_link_3" pos="0.066113407 0.065272583 0.004" euler="3.1415927 0 0">
+                <joint name="R_Claf_link_3_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+                <inertial pos="0.029054605 0.0068988861 -0.0093621632" mass="0.0039705666" quat="0.98905959 0.060529633 0.0080644346 0.13428422" diaginertia="6.8905955e-08 2.3727339e-06 2.4140887e-06" />
+                <geom name="R_Claf_link_3_mesh_1" type="mesh" mesh="part_005_claf_link3_4" pos="-0.065199468 0.083141702 -0.122" euler="-3.1415927 0 0" group="1" />
+                <body name="R_Claf_link_4" pos="0.057822699 0.016016726 -0.005">
+                  <joint name="R_Claf_link_4_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.0001" />
+                  <inertial pos="-0.076260043 0.07214868 0.0024924996" mass="0.022393167" quat="0.9469092 -3.1768963e-05 9.620736e-05 -0.32150109" diaginertia="4.8639531e-06 7.4194387e-05 7.8964728e-05" />
+                  <site name="closure_004_a_site" type="sphere" pos="-0.017532437 0.031442228 0.00055" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+                  <geom name="R_Claf_link_4_mesh_1" type="mesh" mesh="part_006_claf_link4_5" pos="-0.12302217 0.067124976 -0.117" euler="-3.1415927 0 0" group="1" />
+                  <body name="Right_Wheel_link" pos="-0.12127588 0.10641754 0.015875" euler="-3.1415927 0 0">
+                    <joint name="Right_Wheel_joint" type="hinge" pos="0 0 0" axis="0 0 1" armature="0.002" damping="0.08" />
+                    <inertial pos="9.1977079e-05 -0.00023569891 -0.0019148227" mass="0.4" quat="0.99240033 -0.0017916093 -0.0010150012 0.12303395" diaginertia="0.0002204239 0.00022187631 0.00031273634" />
+                    <geom name="R_Wheel_mesh_1" type="mesh" mesh="part_008_v3" pos="-0.0017462873 0.039292568 0.132875" euler="0 0 0" group="1" />
+                    <geom name="R_Wheel_collision" type="cylinder" pos="0 0 0" size="0.043 0.030" zaxis="0 0 1" material="rubber" friction="2.0 2.0 0.02" />
+                  </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="Right_rear_link" pos="-0.017706299 0.01959563 -0.108625" euler="3.1415927 0 0">
+          <joint name="Right_rear_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="1.0" armature="0.02" />
+          <inertial pos="0.023302239 0.0062967701 -0.001011558" mass="0.0296825" quat="0.99175305 -0.001049931 -0.03184017 0.12414098" diaginertia="5.5997061e-06 4.6648368e-05 5.0800749e-05" />
+          <site name="closure_003_b_site" type="sphere" pos="0.047949877 0.014170719 0.0055" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <site name="closure_004_b_site" type="sphere" pos="0.10548973 0.031175581 0.00905" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <geom name="R_Thigh_mesh_1" type="mesh" mesh="part_007_thigh_link0_1" pos="0 0.06685833 -0.1085" euler="-3.1415927 0 0" group="1" />
+        </body>
+      </body>
+    </body>
+  </worldbody>
+  <contact>
+    <exclude body1="L_Claf_link_3" body2="L_Claf_link_4" />
+    <exclude body1="L_Claf_link_3" body2="Left_rear_link" />
+    <exclude body1="L_Claf_link_3" body2="Left_front_link" />
+    <exclude body1="L_Claf_link_3" body2="L_claf_link_1" />
+    <exclude body1="L_Claf_link_3" body2="L_claf_link_2" />
+    <exclude body1="L_Claf_link_3" body2="base_link" />
+    <exclude body1="L_Claf_link_4" body2="Left_rear_link" />
+    <exclude body1="L_Claf_link_4" body2="Left_front_link" />
+    <exclude body1="L_Claf_link_4" body2="L_claf_link_1" />
+    <exclude body1="L_Claf_link_4" body2="L_claf_link_2" />
+    <exclude body1="L_Claf_link_4" body2="base_link" />
+    <exclude body1="Left_rear_link" body2="Left_front_link" />
+    <exclude body1="Left_rear_link" body2="L_claf_link_1" />
+    <exclude body1="Left_rear_link" body2="L_claf_link_2" />
+    <exclude body1="Left_rear_link" body2="base_link" />
+    <exclude body1="Left_front_link" body2="L_claf_link_1" />
+    <exclude body1="Left_front_link" body2="L_claf_link_2" />
+    <exclude body1="Left_front_link" body2="base_link" />
+    <exclude body1="L_claf_link_1" body2="L_claf_link_2" />
+    <exclude body1="L_claf_link_1" body2="base_link" />
+    <exclude body1="L_claf_link_2" body2="base_link" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_1" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_2" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_3" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_4" />
+    <exclude body1="Right_front_link" body2="Right_rear_link" />
+    <exclude body1="Right_front_link" body2="base_link" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_2" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_3" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_1" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_1" body2="base_link" />
+    <exclude body1="R_Claf_link_2" body2="R_Claf_link_3" />
+    <exclude body1="R_Claf_link_2" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_2" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_2" body2="base_link" />
+    <exclude body1="R_Claf_link_3" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_3" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_3" body2="base_link" />
+    <exclude body1="R_Claf_link_4" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_4" body2="base_link" />
+    <exclude body1="Right_rear_link" body2="base_link" />
+  </contact>
+  <equality>
+    <connect name="closure_001" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_001_a_site" site2="closure_001_b_site" />
+    <connect name="closure_002" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_002_a_site" site2="closure_002_b_site" />
+    <connect name="closure_003" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_003_a_site" site2="closure_003_b_site" />
+    <connect name="closure_004" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_004_a_site" site2="closure_004_b_site" />
+  </equality>
+  <actuator>
+    <general name="Left_front_joint_actuator" joint="Left_front_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Left_rear_joint_actuator" joint="Left_rear_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Left_Wheel_joint_actuator" joint="Left_Wheel_joint" gainprm="1" gear="10" />
+    <general name="Right_front_joint_actuator" joint="Right_front_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Right_rear_joint_actuator" joint="Right_rear_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Right_Wheel_joint_actuator" joint="Right_Wheel_joint" gainprm="1" gear="10" />
+  </actuator>
+  <sensor>
+    <framequat name="body_quat" objtype="body" objname="base_link" />
+    <gyro name="body_gyro" site="imu" />
+    <accelerometer name="body_acc" site="imu" />
+    <jointpos name="Lf_joint_pos" joint="Left_front_joint" />
+    <jointvel name="Lf_joint_vel" joint="Left_front_joint" />
+    <jointpos name="Lr_joint_pos" joint="Left_rear_joint" />
+    <jointvel name="Lr_joint_vel" joint="Left_rear_joint" />
+    <jointpos name="Rf_joint_pos" joint="Right_front_joint" />
+    <jointvel name="Rf_joint_vel" joint="Right_front_joint" />
+    <jointpos name="Rr_joint_pos" joint="Right_rear_joint" />
+    <jointvel name="Rr_joint_vel" joint="Right_rear_joint" />
+  </sensor>
+  <keyframe>
+    <key name="home" qpos="0 0 -0.022 0.70710678 0.70710678 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0 0" />
+  </keyframe>
+</mujoco>

@@ -10,22 +10,38 @@
 #ifndef LEG_ANGLE_KP
 /* 四腿关节角度伺服 P 增益。实测 15.0 会让腿伺服变硬、
  * 与位置保持耦合导致车漂移 ±2m 且腿像泄力, 恢复原 4.0。 */
+#if MODEL_V3
+#define LEG_ANGLE_KP 50.0f  /* v3 闭链腿: 高刚度才不被轮驱反作用力推离 */
+#else
 #define LEG_ANGLE_KP 4.0f
+#endif
 #endif
 
 #ifndef LEG_ANGLE_KI
 /* 四腿关节角度伺服 I 增益。用于消除静差，过大会慢性振荡。 */
+#if MODEL_V3
+#define LEG_ANGLE_KI 0.05f  /* v3: 积分减小, 防积分饱和甩腿 */
+#else
 #define LEG_ANGLE_KI 0.90f
+#endif
 #endif
 
 #ifndef LEG_ANGLE_KD
 /* 四腿关节角度伺服 D 增益。用于抑制腿关节速度，过大会放大速度噪声。 */
+#if MODEL_V3
+#define LEG_ANGLE_KD 0.60f  /* v3 轻机构: 需要速度阻尼压住 200Hz 采样极限环 */
+#else
 #define LEG_ANGLE_KD 0.045f
+#endif
 #endif
 
 #ifndef LEG_ANGLE_MAX
 /* 腿关节 PID 输出限幅，不是腿角参考限幅。 */
+#if MODEL_V3
+#define LEG_ANGLE_MAX 10.0f
+#else
 #define LEG_ANGLE_MAX 8.0f
+#endif
 #endif
 
 #ifndef LEG_ANGLE_DEADBAND
@@ -46,7 +62,11 @@
 
 #ifndef WHEEL_MIX_BALANCE_WEIGHT
 /* balance.c 输出的俯仰共模扭矩最终缩放权重。 */
+#if MODEL_V3
+#define WHEEL_MIX_BALANCE_WEIGHT 1.0f   /* v3 轻车: 俯仰扭矩全量直出 */
+#else
 #define WHEEL_MIX_BALANCE_WEIGHT 0.60f
+#endif
 #endif
 
 #ifndef WHEEL_MIX_YAW_WEIGHT
@@ -56,7 +76,11 @@
 
 #ifndef WHEEL_OUTPUT_SPEED_CAP_ENABLE
 /* 输出层最终轮速保护开关；只修正俯仰共模扭矩，不动偏航差动项。 */
+#if MODEL_V3
+#define WHEEL_OUTPUT_SPEED_CAP_ENABLE 0
+#else
 #define WHEEL_OUTPUT_SPEED_CAP_ENABLE 1
+#endif
 #endif
 
 #ifndef WHEEL_OUTPUT_SPEED_CAP_START
@@ -127,6 +151,14 @@
 #ifndef RUN_HEADLESS_TEST_DT
 /* 历史无界面测试文件使用的打印时间步长，单位 s；当前主入口不使用该文件。 */
 #define RUN_HEADLESS_TEST_DT 0.001
+#endif
+
+#ifndef LEG_V3_SERVO_KP
+/* v3 直接腿位置伺服: ctrl = KP*(ref-pos) - KD*vel, 1kHz。
+ * 实测硬锁(80)让伺服饱和打满、机体高频振动触发 impact 门控全关。
+ * v3 用软保持(自由腿即能平衡), 只防塌陷到极限。 */
+#define LEG_V3_SERVO_KP 80.0f
+#define LEG_V3_SERVO_KD 4.0f
 #endif
 
 #endif

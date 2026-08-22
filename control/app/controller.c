@@ -19,7 +19,7 @@
 int main(int argc, char **argv)
 {
     Simulation sim;
-    if (!simulation_load(&sim, "model/COD-2026RoboMaster-Balance.xml"))
+    if (!simulation_load(&sim, "model/v3/COD-2026RoboMaster-Balance-v3.xml"))
         return 1;
 
     int rc;

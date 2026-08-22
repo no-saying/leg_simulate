@@ -20,6 +20,7 @@
  *   - 偏航环: 50 Hz。
  */
 #include "balance_internal.h"
+#include "leg_kin_v3.h"
 #include <math.h>
 #include <stdio.h>
 
@@ -103,8 +104,14 @@ void balance_update(const double *s, double dt,
     *spd = g_balance.vel;
     *ex  = g_balance.pos;
 
-    /* 左右轮轴向相反，所以共模前进速度用 lw-rw。半径必须和 MJCF 轮半径一致。 */
+    /* v3: 左右轮轴同向(都绕世界 -y)，轮编码器符号与运动方向相反:
+     * 实测车体 +x 前进时 lw/rw 均为负(轮向后滚), 所以取 -(lw+rw)。
+     * 旧模型左右轮轴相反用 lw-rw，见 git 历史。 */
+#if MODEL_V3
+    float fwd_spd = -(lw_vel + rw_vel) * 0.5f;
+#else
     float fwd_spd = (lw_vel - rw_vel) * 0.5f;
+#endif
     float wheel_v = fwd_spd * WHEEL_RADIUS;
 
     if(!g_balance.bal_mode){

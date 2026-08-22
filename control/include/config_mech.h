@@ -7,16 +7,23 @@
  * 机械/标定常数
  * ========================================================================== */
 
+#ifndef MODEL_V3
+/* v3 = 串联腿闭链轮腿模型(新): 每侧 2 驱动关节(claf0+大腿),
+ * 虚拟坐标单位为米(m), 与旧四腿模型的 rad 语义不同。 */
+#define MODEL_V3 1
+#endif
+
 #ifndef BALANCE_LEG_SW_NOM
-/* 腿摆名义角。等效静态质心标定点；调它会同时改变四腿默认站姿和 pitch 平衡偏置。 */
-#define BALANCE_LEG_SW_NOM 0.23f
+/* 腿摆名义值(单位 m, v3 为轮轴前向偏移)。等效静态质心标定点；
+ * 调它会同时改变默认站姿和 pitch 平衡偏置。 */
+#define BALANCE_LEG_SW_NOM (-0.01596f)
 #endif
 
 /* 是否启用历史纯惯性里程计路径。当前主路径不用它，保留用于旧实验复现。 */
 #define USE_IMU_ONLY_ODOM 0
 
-/* 轮半径，必须和 MJCF 轮几何半径一致；改错会让轮速/里程计整体比例错误。 */
-#define WHEEL_RADIUS 0.058f
+/* 轮半径，必须和 MJCF 轮几何半径一致(v3 轮径 86mm)；改错会让轮速/里程计整体比例错误。 */
+#define WHEEL_RADIUS 0.043f
 
 /* 轮毂减速比(电机:轮)。必须和 MJCF 轮执行器 gear 一致(当前 10)。
  * 轮上扭矩 = 减速比 * 电机扭矩；电机转速 = 减速比 * 轮转速。
@@ -42,13 +49,14 @@
 /*
  * 腿部运动学线性化系数，单位 m/rad。
  * 用来估计腿摆/腿长变化对轮轴 x 方向速度的贡献，然后从轮编码器速度里扣掉。
+ * v3: sw 本身定义为轮轴 x 偏移(m), 腿长变化只动 z 不产生 x 速度。
  */
-#define LEG_AXLE_DX_DSW (-0.15842f)
-#define LEG_AXLE_DX_DEL (-0.07492f)
-#define LEG_AXLE_DX_DER (-0.08349f)
+#define LEG_AXLE_DX_DSW 1.0f
+#define LEG_AXLE_DX_DEL 0.0f
+#define LEG_AXLE_DX_DER 0.0f
 
 /* 名义轮轴高度，单位 m；pitch_rate * LEG_AXLE_Z_NOM 是俯仰转动引起的等效轮速项。 */
-#define LEG_AXLE_Z_NOM  (-0.20842f)
+#define LEG_AXLE_Z_NOM  (-0.08656f)
 
 /* 手动腿长控制(E=伸长/升高, Q=缩短/降低)。
  * 符号约定和辨识模型一致: leg_extend 正 -> 实测 leg_len 向 0 靠近(约 -0.06)且车体
@@ -58,13 +66,13 @@
 #define MANUAL_LEG_EXTEND_ENABLE 1
 #endif
 #ifndef MANUAL_LEG_EXTEND_MAX
-#define MANUAL_LEG_EXTEND_MAX 0.250f
+#define MANUAL_LEG_EXTEND_MAX 0.040f
 #endif
 
 #ifndef MANUAL_LEG_EXTEND_RATE
 /* 手动腿长目标变化率，单位 rad/s。按住 E/Q 时持续调节，松开保持当前值。
- * 0.35 rad/s -> 全程(±0.25)约 0.7s，按住就能看到持续升降。 */
-#define MANUAL_LEG_EXTEND_RATE 0.35f
+ * v3 单位 m/s: 0.04 m/s -> 全程(±0.04)约 1s。 */
+#define MANUAL_LEG_EXTEND_RATE 0.04f
 #endif
 
 

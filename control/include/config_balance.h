@@ -19,7 +19,11 @@
 
 #ifndef SIMPLE_ORIGIN_ENABLE
 /* 是否让里程计误差参与目标俯仰角规划。关闭后只做平衡和速度阻尼，不主动回原点。 */
+#if MODEL_V3
+#define SIMPLE_ORIGIN_ENABLE 0   /* v3 调参期: 关掉位置/中性角自适应 */
+#else
 #define SIMPLE_ORIGIN_ENABLE 1
+#endif
 #endif
 
 #ifndef SIMPLE_HOLD_AT_POINT
@@ -36,14 +40,24 @@
 
 #ifndef SIMPLE_PITCH_KP
 /* 俯仰角度 P 增益。加入 10:1 减速后轮惯量反射(armature 0.052)是原来的
- * 25 倍，原 240 会救不住倾角、车直接漂走；实测 800 + 扭矩上限 24 可稳定。 */
+ * 25 倍，原 240 会救不住倾角、车直接漂走；实测 800 + 扭矩上限 24 可稳定。
+ * v3 新模型(轮轴同向、安装矩阵补偿)俯仰符号与旧模型相反:
+ * 扫参实测 tau = -KP*pitch - KD*pitch_rate 才能稳定站立。 */
+#if MODEL_V3
+#define SIMPLE_PITCH_KP (-120.0f)
+#else
 #define SIMPLE_PITCH_KP 240.0f
+#endif
 #endif
 
 #ifndef SIMPLE_PITCH_KD
 /* 俯仰角速度 D 增益。调大: 阻尼更强，压掉目标俯仰低周摇摆引起的
  * pitch 过冲(实测 tp=2.4° 时 pitch 冲到 3.1°)；过大: 放大陀螺噪声。 */
+#if MODEL_V3
+#define SIMPLE_PITCH_KD (-20.0f)
+#else
 #define SIMPLE_PITCH_KD 85.0f
+#endif
 #endif
 
 #ifndef SIMPLE_PITCH_KI_NM
@@ -91,7 +105,11 @@
  * 这里的直连阻尼只保留很小值防高频抖振，避免与抬身扭矩反向抵消
  * (漂移 1m/s 时 5Nm 前驱刹车 vs 俯仰误差 -5Nm 抬身, 净扭矩≈0)。
  * 抬身瞬间该阻尼按俯仰误差自动退让, 见 balance_step_pitch_yaw.inc。 */
+#if MODEL_V3
+#define SIMPLE_VEL_DAMP 0.0f   /* v3 调参期: 速度阻尼符号/增益待重标定 */
+#else
 #define SIMPLE_VEL_DAMP 1.5f
+#endif
 #endif
 
 #ifndef SIMPLE_NEUTRAL_VEL
@@ -101,7 +119,11 @@
 
 #ifndef SIMPLE_BASE_NEUTRAL
 /* 目标俯仰角基准偏置，单位 rad；机械质心偏差优先调 BALANCE_LEG_SW_NOM。 */
+#if MODEL_V3
 #define SIMPLE_BASE_NEUTRAL 0.0f
+#else
+#define SIMPLE_BASE_NEUTRAL 0.0f
+#endif
 #endif
 
 
@@ -111,22 +133,38 @@
 
 #ifndef SIMPLE_TAU_START
 /* 启动早期共模扭矩限幅，单位 Nm；重轮下 72 会让轮子打滑级联，降到 24。 */
+#if MODEL_V3
+#define SIMPLE_TAU_START 100.0f
+#else
 #define SIMPLE_TAU_START 72.0f
+#endif
 #endif
 
 #ifndef SIMPLE_TAU_RUN
 /* 正常运行共模扭矩限幅，单位 Nm。 */
+#if MODEL_V3
+#define SIMPLE_TAU_RUN 100.0f
+#else
 #define SIMPLE_TAU_RUN 72.0f
+#endif
 #endif
 
 #ifndef SIMPLE_RATE_START
 /* 启动早期扭矩变化率限制，单位 Nm/s；越小越柔，越大响应越猛。 */
+#if MODEL_V3
+#define SIMPLE_RATE_START 50000.0f   /* v3 轻车: 等效无速率限制 */
+#else
 #define SIMPLE_RATE_START 420.0f
+#endif
 #endif
 
 #ifndef SIMPLE_RATE_RUN
 /* 正常运行扭矩变化率限制，单位 Nm/s。 */
+#if MODEL_V3
+#define SIMPLE_RATE_RUN 50000.0f
+#else
 #define SIMPLE_RATE_RUN 420.0f
+#endif
 #endif
 
 #ifndef SIMPLE_BIG_RECOVERY
@@ -160,8 +198,13 @@
 #endif
 
 #ifndef SIMPLE_YAW_MAX
-/* 偏航差动扭矩最大值，单位 Nm；最终还会被俯仰扭矩余量门控。 */
+/* 偏航差动扭矩最大值，单位 Nm；最终还会被俯仰扭矩余量门控。
+ * v3 新模型差速/陀螺符号未标定前先关闭, 防止差速正反馈把车甩翻。 */
+#if MODEL_V3
+#define SIMPLE_YAW_MAX 0.0f   /* yaw 环符号未标定, 先关 */
+#else
 #define SIMPLE_YAW_MAX 1.2f
+#endif
 #endif
 
 #ifndef SIMPLE_YAW_I_MAX
@@ -204,25 +247,33 @@
  * 差动腿伸长只用于接地时的慢速找平, 空中/冲击/跳跃时退出。
  */
 #ifndef ROLL_STAB_KP
-#define ROLL_STAB_KP 8.0f       /* rad 差动 / rad roll; 扫描 0.4~8 后取 8 */
+#if MODEL_V3
+#define ROLL_STAB_KP 0.0f      /* roll 环待重标定, 先关 */
+#else
+#define ROLL_STAB_KP 8.0f
+#endif
 #endif
 #ifndef ROLL_STAB_KD
-#define ROLL_STAB_KD 0.20f      /* rad 差动 / (rad/s) roll rate */
+#define ROLL_STAB_KD 0.02f      /* v3: m / (rad/s) */
 #endif
 #ifndef ROLL_STAB_KI
-#define ROLL_STAB_KI 0.15f      /* 积分增益, 消除持续单侧负载/地形静差 */
+#define ROLL_STAB_KI 0.01f      /* v3: 积分增益 */
 #endif
 #ifndef ROLL_STAB_I_MAX
-#define ROLL_STAB_I_MAX 0.10f   /* 积分项限幅, rad */
+#define ROLL_STAB_I_MAX 0.02f   /* v3: 积分项限幅, m */
 #endif
 #ifndef ROLL_STAB_MAX
-#define ROLL_STAB_MAX 0.26f     /* 差动腿伸长指令总限幅, rad(腿行程上限) */
+#define ROLL_STAB_MAX 0.040f    /* v3: 差动腿伸长指令总限幅, m(腿行程上限) */
 #endif
 #ifndef ROLL_STAB_RATE
-#define ROLL_STAB_RATE 0.030f   /* 差动指令变化率限幅, rad / 1ms 控制步 */
+#define ROLL_STAB_RATE 0.0005f  /* v3: 差动指令变化率限幅, m / 1ms 控制步 */
 #endif
 #ifndef ROLL_STAB_STARTUP
-#define ROLL_STAB_STARTUP 1.5f  /* 启动后等待平衡建立再介入, s */
+#if MODEL_V3
+#define ROLL_STAB_STARTUP 0.6f
+#else
+#define ROLL_STAB_STARTUP 1.5f
+#endif
 #endif
 #ifndef ROLL_STAB_DISABLE_ABS
 #define ROLL_STAB_DISABLE_ABS 0.30f /* |roll| 超该值退出(接近翻车由自救接管) */

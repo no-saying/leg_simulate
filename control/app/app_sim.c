@@ -76,14 +76,7 @@ void maybe_auto_enable_balance(Simulation *sim)
 void simulation_reset(Simulation *sim)
 {
     mjData *d = sim->data;
-    d->qpos[0] = 0.0;
-    d->qpos[1] = 0.0;
-    d->qpos[2] = 0.5;
-    d->qpos[3] = 1.0;
-    d->qpos[4] = 0.0;
-    d->qpos[5] = 0.0;
-    d->qpos[6] = 0.0;
-    for (int i = 0; i < 6; i++) d->qvel[i] = 0.0;
+    sensors_set_initial_pose(sim->model, d);
     mj_forward(sim->model, sim->data);
 
     sim->state.step_count = 0;
@@ -107,14 +100,7 @@ static void apply_body_lock_if_requested(Simulation *sim, int body_lock)
     if (!body_lock) return;
 
     mjData *d = sim->data;
-    d->qpos[0] = 0.0;
-    d->qpos[1] = 0.0;
-    d->qpos[2] = 0.5;
-    d->qpos[3] = 1.0;
-    d->qpos[4] = 0.0;
-    d->qpos[5] = 0.0;
-    d->qpos[6] = 0.0;
-    for (int i = 0; i < 6; i++) d->qvel[i] = 0.0;
+    sensors_set_initial_pose(sim->model, d);
 }
 
 void apply_open_loop_override(SensorState *s)

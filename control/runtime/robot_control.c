@@ -6,6 +6,7 @@
 #include "controllers/controllers.h"
 #include "controllers/rl_jump/rl_jump_controller.h"
 #include "controllers/supervisor/controller_supervisor.h"
+#include "leg_kin_v3.h"
 #include "leg_t.h"
 #include "pid.h"
 #include "control_config.h"
@@ -202,7 +203,11 @@ static SidePair clamp_leg_extension(const SensorState *s,
 {
     /* RL 跳跃期允许更大的腿长范围(训练动作幅度 ±0.30 超出常规 ±0.26),
      * 空闲/正常行驶仍按常规限位保护。 */
+#if MODEL_V3
+    float limit = (s->rl_state != 0) ? 0.06f : 0.04f;   /* v3: 单位 m */
+#else
     float limit = (s->rl_state != 0) ? 0.35f : 0.26f;
+#endif
     SidePair ext = {
         .left = (float)(common + differential),
         .right = (float)(common - differential)
@@ -215,6 +220,19 @@ static SidePair clamp_leg_extension(const SensorState *s,
 static void update_leg_servos(LowLevelControllers *low, SensorState *s, float swing_ref)
 {
     SidePair ext = clamp_leg_extension(s, s->leg_extend, s->leg_side_extend);
+#if MODEL_V3
+    /* v3 反解: 虚拟(sw 偏差 m, 左/右腿长偏差 m) -> 4 驱动关节目标。
+     * swing_ref 是含名义值的绝对摆动(m), ext 是腿长偏差(m)。 */
+    float sw_dev = swing_ref - BALANCE_LEG_SW_NOM;
+    float lf_r, lr_r, rf_r, rr_r;
+    leg_kin_v3_inverse(sw_dev, ext.left, ext.right,
+                       &lf_r, &lr_r, &rf_r, &rr_r);
+#else
+    float lf_r = swing_ref - ext.left;
+    float lr_r = 0.4f - swing_ref - ext.left;
+    float rf_r = -0.1f - swing_ref + ext.right;
+    float rr_r = -0.4f + swing_ref + ext.right;
+#endif
 
     /* 临时调试: RL_LEG_DBG=2 时打印腿伺服参考/误差 */
     static int leg_dbg2 = -1;
@@ -230,8 +248,7 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
             printf("[LegRef] t=%.2f sw=%+.3f exL=%+.3f exR=%+.3f | "
                    "ref[lf,lr,rf,rr]=[%+.3f,%+.3f,%+.3f,%+.3f] pos=[%+.3f,%+.3f,%+.3f,%+.3f]\n",
                    s->sim_time, swing_ref, ext.left, ext.right,
-                   swing_ref - ext.left, 0.4f - swing_ref - ext.left,
-                   -0.1f - swing_ref + ext.right, -0.4f + swing_ref + ext.right,
+                   lf_r, lr_r, rf_r, rr_r,
                    (float)s->lf_pos, (float)s->lr_pos,
                    (float)s->rf_pos, (float)s->rr_pos);
         }
@@ -244,14 +261,14 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
          * roll 修正(左右腿对称)、pitch 修正(前后腿差动)、
          * IMU 加速度方向修正(防前冲)。 */
         float jump_ext = JUMP_LAUNCH_EXT;
-        float lf_r = swing_ref - jump_ext;
-        float lr_r = 0.4f - swing_ref - jump_ext;
-        float rf_r = -0.1f - swing_ref + jump_ext;
-        float rr_r = -0.4f + swing_ref + jump_ext;
-        float lf_e = lf_r - (float)s->lf_pos;
-        float lr_e = lr_r - (float)s->lr_pos;
-        float rf_e = rf_r - (float)s->rf_pos;
-        float rr_e = rr_r - (float)s->rr_pos;
+        float j_lf_r = swing_ref - jump_ext;
+        float j_lr_r = 0.4f - swing_ref - jump_ext;
+        float j_rf_r = -0.1f - swing_ref + jump_ext;
+        float j_rr_r = -0.4f + swing_ref + jump_ext;
+        float lf_e = j_lf_r - (float)s->lf_pos;
+        float lr_e = j_lr_r - (float)s->lr_pos;
+        float rf_e = j_rf_r - (float)s->rf_pos;
+        float rr_e = j_rr_r - (float)s->rr_pos;
         float c_lf = (fabsf(lf_e) > 0.02f) ? ((lf_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
         float c_lr = (fabsf(lr_e) > 0.02f) ? ((lr_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
         float c_rf = (fabsf(rf_e) > 0.02f) ? ((rf_e > 0.0f) ?  JUMP_TORQUE : -JUMP_TORQUE) : 0.0f;
@@ -281,10 +298,17 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
         }
         float load = fabsf((float)s->lf_torque) + fabsf((float)s->lr_torque)
                    + fabsf((float)s->rf_torque) + fabsf((float)s->rr_torque);
+#if MODEL_V3
+        float sw_dev = swing_ref - BALANCE_LEG_SW_NOM;
+        float lf_ref, lr_ref, rf_ref, rr_ref;
+        leg_kin_v3_inverse(sw_dev, ext.left, ext.right,
+                           &lf_ref, &lr_ref, &rf_ref, &rr_ref);
+#else
         float lf_ref = swing_ref - ext.left;
         float lr_ref = 0.4f - swing_ref - ext.left;
         float rf_ref = -0.1f - swing_ref + ext.right;
         float rr_ref = -0.4f + swing_ref + ext.right;
+#endif
         if (load > JUMP_LAND_LOAD) {
             s->ctrl[0] = clampf_runtime(
                 JUMP_LAND_KP * (lf_ref - (float)s->lf_pos) - JUMP_LAND_KD * (float)s->lf_vel,
@@ -302,15 +326,34 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
         }
     }
 
-    LegJointSetRef(&low->lf, swing_ref - ext.left);
-    LegJointSetRef(&low->lr, 0.4f - swing_ref - ext.left);
-    LegJointSetRef(&low->rf, -0.1f - swing_ref + ext.right);
-    LegJointSetRef(&low->rr, -0.4f + swing_ref + ext.right);
+#if MODEL_V3
+    /* v3: 直接位置伺服(1kHz, P+速度阻尼)。
+     * 旧 LegJointUpdate 的微分先行+采样分频(angle_div=5 但 dt=1ms)在
+     * 轻闭链机构上正反馈自激(实测腿 0.5rad/5ms 甩飞), v3 绕开该 PID,
+     * 与 Python 辨识扫参(硬位置伺服)一致。 */
+    s->ctrl[0] = clampf_runtime(LEG_V3_SERVO_KP * (lf_r - (float)s->lf_pos)
+                                - LEG_V3_SERVO_KD * (float)s->lf_vel,
+                                -10.0f, 10.0f);
+    s->ctrl[1] = clampf_runtime(LEG_V3_SERVO_KP * (lr_r - (float)s->lr_pos)
+                                - LEG_V3_SERVO_KD * (float)s->lr_vel,
+                                -10.0f, 10.0f);
+    s->ctrl[3] = clampf_runtime(LEG_V3_SERVO_KP * (rf_r - (float)s->rf_pos)
+                                - LEG_V3_SERVO_KD * (float)s->rf_vel,
+                                -10.0f, 10.0f);
+    s->ctrl[4] = clampf_runtime(LEG_V3_SERVO_KP * (rr_r - (float)s->rr_pos)
+                                - LEG_V3_SERVO_KD * (float)s->rr_vel,
+                                -10.0f, 10.0f);
+#else
+    LegJointSetRef(&low->lf, lf_r);
+    LegJointSetRef(&low->lr, lr_r);
+    LegJointSetRef(&low->rf, rf_r);
+    LegJointSetRef(&low->rr, rr_r);
 
     s->ctrl[0] = LegJointUpdate(&low->lf, (float)s->lf_pos, (float)s->lf_vel, 0);
     s->ctrl[1] = LegJointUpdate(&low->lr, (float)s->lr_pos, (float)s->lr_vel, 0);
     s->ctrl[3] = LegJointUpdate(&low->rf, (float)s->rf_pos, (float)s->rf_vel, 0);
     s->ctrl[4] = LegJointUpdate(&low->rr, (float)s->rr_pos, (float)s->rr_vel, 0);
+#endif
 }
 
 static float apply_output_speed_cap(SensorState *s, double dt, float pitch_mix)
@@ -322,7 +365,11 @@ static float apply_output_speed_cap(SensorState *s, double dt, float pitch_mix)
      *   - 只改写俯仰共模扭矩。
      *   - 保持偏航差动扭矩独立，便于推理和调参。
      */
+#if MODEL_V3
+    float wheel_v_m = (float)(-((s->lw_vel + s->rw_vel) * 0.5) * WHEEL_RADIUS);
+#else
     float wheel_v_m = (float)(((s->lw_vel - s->rw_vel) * 0.5) * 0.058);
+#endif
     float abs_wheel_v = fabsf(wheel_v_m);
     int cap_hold_allowed = fabsf((float)s->pitch) < WHEEL_OUTPUT_SPEED_CAP_PITCH_GATE;
 
@@ -362,7 +409,11 @@ static float apply_manual_speed_cap(SensorState *s, float pitch_mix)
      * 不经过俯仰环。这样无论俯仰环想怎么驱动，轮子物理上都会被刹住，
      * 手动行驶既不会越跑越快，松手后也能真正停下来。
      */
+#if MODEL_V3
+    float wheel_v_m = (float)(-((s->lw_vel + s->rw_vel) * 0.5) * WHEEL_RADIUS);
+#else
     float wheel_v_m = (float)(((s->lw_vel - s->rw_vel) * 0.5) * 0.058);
+#endif
     float abs_v = fabsf(wheel_v_m);
     /* 手动中/松手停车刹车阶段生效，自动回程模式绝不介入。 */
     if (balance_get_manual_active() || balance_get_post_manual()) {
@@ -437,12 +488,20 @@ static void mix_wheel_outputs(SensorState *s, double dt)
         if (rw_s < -6.0f && r_tau < 0.0f) r_tau = 0.0f;
         /* 右轮轴镜像: 俯仰校正 pc 取反才是物理共模。 */
         s->ctrl[2] = (pc + l_tau) / 10.0;
+#if MODEL_V3
+        s->ctrl[5] = (pc + r_tau) / 10.0;
+#else
         s->ctrl[5] = (-pc + r_tau) / 10.0;
+#endif
         return;
     }
 
     s->ctrl[2] = (pitch_mix - yaw_mix) / 10.0;
+#if MODEL_V3
+    s->ctrl[5] = (pitch_mix + yaw_mix) / 10.0;
+#else
     s->ctrl[5] = -(pitch_mix + yaw_mix) / 10.0;
+#endif
 }
 
 void robot_control_step(SensorState *s, double dt)
@@ -496,9 +555,14 @@ void robot_control_step(SensorState *s, double dt)
             leg_dbg_cnt = 0;
             float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
             float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
+#if MODEL_V3
+            float sw, L, R;
+            leg_kin_v3_forward(lf, lr, rf, rr, &sw, &L, &R);
+#else
             float sw = 0.25f * ((lf - lr + 0.4f) + (0.3f - rf + rr));
             float L = 0.5f * (0.4f - lf - lr);
             float R = 0.5f * (rf + rr + 0.5f);
+#endif
             printf("[LegDbg] t=%.2f lf=%+.3f lr=%+.3f rf=%+.3f rr=%+.3f "
                    "sw=%+.3f L=%+.3f R=%+.3f\n",
                    s->sim_time, lf, lr, rf, rr, sw, L, R);

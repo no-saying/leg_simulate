@@ -46,15 +46,22 @@
     if (imu_acc_raw >  20.0f) imu_acc_raw =  20.0f;
     if (imu_acc_raw < -20.0f) imu_acc_raw = -20.0f;
 
-    /* 由腿关节速度估计轮轴相对机体的运动，用于补偿轮速中的腿摆/腿长变化分量。 */
+    /* 由腿关节速度估计轮轴相对机体的运动，用于补偿轮速中的腿摆/腿长变化分量。
+     * v3: 用闭链腿线性运动学映射(sw/L 单位 m)。 */
+#if MODEL_V3
+    float swing_dot, l_dot, r_dot;
+    leg_kin_v3_velocities(lf_vel_j, lr_vel_j, rf_vel_j, rr_vel_j,
+                          &swing_dot, &l_dot, &r_dot);
+#else
     float left_swing_dot = 0.5f * (lf_vel_j - lr_vel_j);
     float right_swing_dot = 0.5f * (rr_vel_j - rf_vel_j);
     float swing_dot = 0.5f * (left_swing_dot + right_swing_dot);
     float left_ext_dot = -0.5f * (lf_vel_j + lr_vel_j);
     float right_ext_dot = 0.5f * (rf_vel_j + rr_vel_j);
+#endif
     float leg_kin_v = (LEG_AXLE_DX_DSW * swing_dot +
-                       LEG_AXLE_DX_DEL * left_ext_dot +
-                       LEG_AXLE_DX_DER * right_ext_dot);
+                       LEG_AXLE_DX_DEL * l_dot +
+                       LEG_AXLE_DX_DER * r_dot);
     float pitch_kin_v = LEG_AXLE_Z_NOM * pitch_rate;
     float wheel_v_body = wheel_v_raw - leg_kin_v - pitch_kin_v;
     g_balance.leg_kin_v_dbg = leg_kin_v;
@@ -81,11 +88,18 @@
 
     /* 腿负载既用于离地判断，也给腿长一个轻微阻尼，减小弹跳。 */
     float leg_load_common = 0.25f * (fabsf(lf_tau) + fabsf(lr_tau) + fabsf(rf_tau) + fabsf(rr_tau));
-    float ext_rate_common = 0.5f * (left_ext_dot + right_ext_dot);
+    float ext_rate_common = 0.5f * (l_dot + r_dot);
     /* 实测虚拟腿长，与辨识状态定义一致，供行车记录仪/未来模型分段选参使用。 */
+#if MODEL_V3
+    float sw_dbg, L_dbg, R_dbg;
+    leg_kin_v3_forward(lf_pos, lr_pos, rf_pos, rr_pos,
+                       &sw_dbg, &L_dbg, &R_dbg);
+    g_balance.leg_len_dbg = 0.5f * (L_dbg + R_dbg);
+#else
     float left_len_dbg = 0.5f * (0.4f - lf_pos - lr_pos);
     float right_len_dbg = 0.5f * (rf_pos + rr_pos + 0.5f);
     g_balance.leg_len_dbg = 0.5f * (left_len_dbg + right_len_dbg);
+#endif
     float ext_damp_ref = -0.0022f * ext_rate_common;
     if (leg_load_common > 22.0f) ext_damp_ref += 0.0020f;
     ext_damp_ref = clampf_local(ext_damp_ref, -0.006f, 0.006f);

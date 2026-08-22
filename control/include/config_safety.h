@@ -23,7 +23,11 @@
 
 #ifndef SIMPLE_WHEEL_GOV_ENABLE
 /* 轮速监管器开关。只削弱“继续加速同方向”的扭矩，保留能刹车的扭矩。 */
+#if MODEL_V3
+#define SIMPLE_WHEEL_GOV_ENABLE 0   /* v3 调参期: 关掉轮速限制器 */
+#else
 #define SIMPLE_WHEEL_GOV_ENABLE 1
+#endif
 #endif
 
 #ifndef SIMPLE_WHEEL_GOV_START

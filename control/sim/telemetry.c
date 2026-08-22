@@ -8,7 +8,12 @@ void telemetry_print_frame(const SensorState *s, double fps)
     double cp = cos(s->pitch);
     double sp = sin(s->pitch);
     double imu_ax = cp * s->acc[0] + sp * s->acc[2];
-    double wheel_v_m = ((s->lw_vel - s->rw_vel) * 0.5) * 0.058;
+    double wheel_v_m;
+#if MODEL_V3
+    wheel_v_m = -((s->lw_vel + s->rw_vel) * 0.5) * 0.043;
+#else
+    wheel_v_m = ((s->lw_vel - s->rw_vel) * 0.5) * 0.058;
+#endif
 
     printf("[t=%.2f] pit=%+.1fd roll=%+.1fd yaw=%+.1fd ye=%+.1fd | "
            "gy=%.1f yr=%.1f | L=%.0f R=%.0f v=%.1f | "
@@ -23,8 +28,13 @@ void telemetry_print_frame(const SensorState *s, double fps)
            s->sim_time, s->pitch * 57.3, s->roll * 57.3, s->yaw * 57.3,
            s->yaw_error * 57.3,
            s->gyro[1], s->yaw_rate,
+#if MODEL_V3
+           s->lw_vel, s->rw_vel, -(s->lw_vel + s->rw_vel) * 0.5,
+           s->ctrl[2] * 10.0, s->ctrl[5] * 10.0, s->acc_mag, imu_ax, wheel_v_m,
+#else
            s->lw_vel, -s->rw_vel, (s->lw_vel - s->rw_vel) * 0.5,
            s->ctrl[2] * 10.0, -s->ctrl[5] * 10.0, s->acc_mag, imu_ax, wheel_v_m,
+#endif
            s->body_pos[0], s->body_pos[1], s->body_pos[2],
            s->est_x, s->ekf_s, s->odom_x, s->odom_y, s->odom_forward,
            s->est_v, s->target_pitch * 57.3, s->leg_swing,

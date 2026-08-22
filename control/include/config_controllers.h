@@ -36,9 +36,13 @@
 #define CTRL_LQR_LEG_LEN_MAX 0.06f   /* LQR 分段覆盖的腿长上限 */
 #endif
 #ifndef CTRL_LQR_MIX_GAIN
-#define CTRL_LQR_MIX_GAIN 0.3f       /* LQR 扰动叠加增益(0=关闭)。
-                                      * 满权重会与腿摆/三环冲突(pitch ±2.6°),
-                                      * 0.3 保留 LQR 增强同时稳态 pitch 稳定。 */
+/* LQR 扰动叠加增益(0=关闭)。旧模型 0.3 保留 LQR 增强同时稳态 pitch 稳定。
+ * v3 新模型 LQR 分段模型尚未重新辨识, 先置 0 关闭。 */
+#if MODEL_V3
+#define CTRL_LQR_MIX_GAIN 0.0f
+#else
+#define CTRL_LQR_MIX_GAIN 0.3f
+#endif
 #endif
 #ifndef CTRL_LQR_STARTUP_DELAY
 #define CTRL_LQR_STARTUP_DELAY 2.0f  /* 启动后 LQR 延迟介入, 先让 PID 稳定 */

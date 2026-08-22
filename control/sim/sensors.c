@@ -5,6 +5,24 @@
 #include <math.h>
 #include <stdio.h>
 
+/* ==========================================================================
+ * 传感器安装矩阵补偿(v3 串联腿闭链模型)
+ * ==========================================================================
+ * v3 模型绕世界 x 轴旋转 +90° 立起(机器人 CAD 坐标系 z 轴水平朝左,
+ * 立起后轮轴沿世界 -y)。因此 base_link 在静止站立时世界姿态为
+ * R_bake = R_x(+90°), 控制器约定(与旧模型一致)要求:
+ *   - 站立时 pitch/roll/yaw = 0 (控制系 = 世界系);
+ *   - pitch_rate 绕世界 y, roll_rate 绕世界 x, yaw_rate 绕世界 z。
+ * 补偿:
+ *   q_ctrl = q_body ⊗ q_bake^{-1}, q_bake^{-1} = conj(R_x(+90°))
+ *   ω_ctrl = R_bake·ω_body   -> (x, -z, y)
+ *   a_ctrl = R_bake·a_body   -> (x, -z, y)
+ */
+#define IMU_BAKE_Q_W 0.70710678f
+#define IMU_BAKE_Q_X 0.70710678f
+#define IMU_BAKE_Q_Y 0.0f
+#define IMU_BAKE_Q_Z 0.0f
+
 typedef struct {
     int ready;
     int lw_joint, rw_joint;
@@ -38,6 +56,35 @@ static double quat_to_yaw(const double q[4])
     return atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z));
 }
 
+/* 四元数乘法(w,x,y,z), 表示 R(q1*q2) = R(q1)·R(q2) */
+static void quat_mul(const double a[4], const double b[4], double out[4])
+{
+    double aw = a[0], ax = a[1], ay = a[2], az = a[3];
+    double bw = b[0], bx = b[1], by = b[2], bz = b[3];
+    out[0] = aw * bw - ax * bx - ay * by - az * bz;
+    out[1] = aw * bx + ax * bw + ay * bz - az * by;
+    out[2] = aw * by - ax * bz + ay * bw + az * bx;
+    out[3] = aw * bz + ax * by - ay * bx + az * bw;
+}
+
+/* 安装矩阵补偿: 把 base_link 传感器系转到控制器约定系 */
+static void imu_mount_compensate(const double q_body[4], const double gyro_body[3],
+                                 const double acc_body[3],
+                                 double q_ctrl[4], double gyro_ctrl[3],
+                                 double acc_ctrl[3])
+{
+    const double q_mount[4] = {IMU_BAKE_Q_W, -IMU_BAKE_Q_X,
+                               -IMU_BAKE_Q_Y, -IMU_BAKE_Q_Z};
+    quat_mul(q_body, q_mount, q_ctrl);
+    /* R_bake = R_x(+90°): (x,y,z) -> (x, -z, y) */
+    gyro_ctrl[0] = gyro_body[0];
+    gyro_ctrl[1] = -gyro_body[2];
+    gyro_ctrl[2] = gyro_body[1];
+    acc_ctrl[0] = acc_body[0];
+    acc_ctrl[1] = -acc_body[2];
+    acc_ctrl[2] = acc_body[1];
+}
+
 static int cache_sensor_addresses(const mjModel *m)
 {
     if (g_addr.ready) return 1;
@@ -60,13 +107,17 @@ static int cache_sensor_addresses(const mjModel *m)
 void sensors_set_initial_pose(const mjModel *m, mjData *d)
 {
     (void)m;
+    /* v3 模型: 轮底触地(轮心 z=-0.107, 半径 0.043, 地面 -0.152),
+     * 初始姿态 = 绕 x +90° 立起(与 IMU_BAKE_Q_* 一致)。 */
     d->qpos[0] = 0.0;
     d->qpos[1] = 0.0;
-    d->qpos[2] = 0.08;
-    d->qpos[3] = 1.0;
-    d->qpos[4] = 0.0;
-    d->qpos[5] = 0.0;
-    d->qpos[6] = 0.0;
+    d->qpos[2] = -0.022;   /* 轮底刚好触地(与 keyframe 一致) */
+    d->qpos[3] = IMU_BAKE_Q_W;
+    d->qpos[4] = IMU_BAKE_Q_X;
+    d->qpos[5] = IMU_BAKE_Q_Y;
+    d->qpos[6] = IMU_BAKE_Q_Z;
+    for (int i = 7; i < m->nq; i++) d->qpos[i] = 0.0;
+    for (int i = 0; i < m->nv; i++) d->qvel[i] = 0.0;
 }
 
 int sensors_read(const mjModel *m, mjData *d, SensorState *s)
@@ -83,14 +134,25 @@ int sensors_read(const mjModel *m, mjData *d, SensorState *s)
     s->lw_vel = d->qvel[g_addr.lw_dof];
     s->rw_vel = d->qvel[g_addr.rw_dof];
 
-    for (int i = 0; i < 4; i++) s->quat[i] = d->sensordata[i];
-    for (int i = 0; i < 3; i++) s->gyro[i] = d->sensordata[4 + i];
-    for (int i = 0; i < 3; i++) s->acc[i] = d->sensordata[7 + i];
+    /* 原始传感器帧(base_link) -> 控制器约定帧 */
+    double q_ctrl[4], gyro_ctrl[3], acc_ctrl[3];
+    const double q_body[4] = {d->sensordata[0], d->sensordata[1],
+                              d->sensordata[2], d->sensordata[3]};
+    const double gyro_body[3] = {d->sensordata[4], d->sensordata[5],
+                                 d->sensordata[6]};
+    const double acc_body[3] = {d->sensordata[7], d->sensordata[8],
+                                d->sensordata[9]};
+    imu_mount_compensate(q_body, gyro_body, acc_body,
+                         q_ctrl, gyro_ctrl, acc_ctrl);
+
+    for (int i = 0; i < 4; i++) s->quat[i] = (float)q_ctrl[i];
+    for (int i = 0; i < 3; i++) s->gyro[i] = (float)gyro_ctrl[i];
+    for (int i = 0; i < 3; i++) s->acc[i] = (float)acc_ctrl[i];
     s->acc_mag = sqrt(s->acc[0] * s->acc[0] + s->acc[2] * s->acc[2]);
 
-    s->pitch = quat_to_pitch(s->quat);
-    s->roll = quat_to_roll(s->quat);
-    s->yaw = quat_to_yaw(s->quat);
+    s->pitch = quat_to_pitch(q_ctrl);
+    s->roll = quat_to_roll(q_ctrl);
+    s->yaw = quat_to_yaw(q_ctrl);
     s->yaw_rate = s->gyro[2];
 
     /* 世界系位置明确只用于显示。 */
