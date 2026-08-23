@@ -57,17 +57,29 @@
          * 维持当前点)；手动弱限幅(0.09rad/1.5x)追不上漂移，实测 zero 指令
          * 下 3s 跑到 2.7m/s。 */
         if (fabsf(g_balance.manual_v) >= 0.05f) {
-            if (g_balance.run_time > 1.0f) {
-                /* 手动速度控制完全由腿摆承担(见 leg_ref), 目标俯仰保持 0:
-                 * 正 tp(后仰指令)会让俯仰环输出向后轮扭矩把车推后退,
-                 * 后退时速度环又给更大正 tp —— 正反馈(实测 tp=+3.4°
-                 * 车匀速后溜 -2.4m/s)。pitch 由平衡环站直即可。 */
-                neutral_pb = SIMPLE_BASE_NEUTRAL;
-            }
+            /* 手动速度控制: 速度误差 -> 目标俯仰(pitch 前倾 -> 轮扭矩前进)。
+             * v3 腿摆弱, 不能像旧模型那样只靠腿摆; 必须让平衡环输出
+             * 轮扭矩驱动。按 W(manual_v>0) 车慢于目标 -> 前倾(neutral 负?),
+             * 具体符号由 SIMPLE_MANUAL_PITCH_GAIN 标定。 */
+            float v_err_pb = g_balance.manual_v - g_balance.body_v_filt;
+            v_err_pb = clampf_local(v_err_pb, -2.0f, 2.0f);
+            /* v3 实测: neutral>0(后仰, tp 正)让车前进, neutral<0(前倾)
+             * 让车后退 —— 与旧模型符号相反, 见 2026-08-23 手动标定。
+             * W(manual_v>0, v_err>0) -> neutral 正 -> 前进; 反之后退。 */
+            neutral_pb = SIMPLE_BASE_NEUTRAL + SIMPLE_MANUAL_PITCH_GAIN * v_err_pb;
+            neutral_pb = clampf_local(neutral_pb,
+                                      -SIMPLE_MANUAL_PITCH_MAX,
+                                       SIMPLE_MANUAL_PITCH_MAX);
             /* 启动 1s 内不覆盖 neutral: 保留 sensor 的 auto 位置环,
              * 否则平衡建立瞬态没人拉回, 会甩成启动后退(实测退 4m)。
              * leg_ref 也有 1s 门控, 见下方。 */
         } else {
+            /* A/D 纯转向(无前后指令): 差速会让 body_v 误读成前进/后退,
+             * 位置/速度环若给 neutral 偏移会推车前进(实测 tp=-2.7°
+             * 边转边前冲)。转向时 neutral 固定 0, 只做差速。 */
+            if (fabsf(g_balance.manual_yaw) >= 0.05f) {
+                neutral_pb = SIMPLE_BASE_NEUTRAL;
+            } else {
             /* 零指令保持: 速度刹向 0 + 位置保持在进入点(不追回启动原点)。 */
             float pos_err_m = g_balance.pos - g_balance.hold_pos;
             /* 静止死区: 位置/速度都足够小时不再给倾角指令，靠俯仰环自带
@@ -107,6 +119,7 @@
                                           -(max_m + SIMPLE_ORIGIN_DIRECT_PITCH_MAX),
                                            max_m + SIMPLE_ORIGIN_DIRECT_PITCH_MAX);
             }
+            }
         }
         /* 目标俯仰变化率限幅: 只在 W/S 速度指令时启用(按键切换/方向反转
          * 时 tp 慢慢建立，避免瞬间打满 ±10° 造成 pitch 甩动)。
@@ -134,6 +147,9 @@
          * 速度低于阈值持续 0.3s 或超时 2s 后退出，交给自动保持。 */
         g_balance.post_manual_t += dt_f;
         float v_err_stop = clampf_local(g_balance.body_v_filt, -2.0f, 2.0f);
+        /* v3 符号: neutral>0 前进, neutral<0 后退(2026-08-23 标定)。
+         * 松手刹车: 车正前进(body_v>0) 需要后退扭矩刹停, 但 v3 下
+         * 后退靠 neutral<0(前倾), 所以取 -v_err: body_v>0 -> neutral<0。 */
         neutral_pb = SIMPLE_BASE_NEUTRAL -
                      SIMPLE_MANUAL_STOP_KP * v_err_stop;
         neutral_pb = clampf_local(neutral_pb,
@@ -195,9 +211,13 @@
     }
 #endif
 #if MODEL_V3
-    /* v3 调参期: 固定中性角, 不做位置/速度自适应(旧模型的里程计/位置环
-     * 符号未标定, neutral 漂移会把 pitch 环推成恒向猛冲 -> 翻滚)。 */
-    neutral_pb = SIMPLE_BASE_NEUTRAL;
+    /* v3: 静止平衡固定中性角(0), 不做位置/速度自适应 —— 里程计/位置环
+     * 符号未标定时 neutral 漂移会把 pitch 环推成恒向猛冲 -> 翻滚。
+     * 但手动驾驶(W/S)必须允许目标 pitch 偏移: 按 W 前倾 -> 平衡环输出
+     * 轮扭矩推车前进; 按 S 后仰 -> 后退。手动分支在上面已根据速度误差
+     * 计算 neutral_pb, 这里只在非手动时固定为 0。 */
+    if (!g_balance.manual_active && !g_balance.post_manual)
+        neutral_pb = SIMPLE_BASE_NEUTRAL;
 #else
     /* 近场直接扭矩模式里目标俯仰只慢速跟随当前角度（稳定但不主动仰身），
      * 避免目标俯仰阶跃造成的反向冲量；远场仍用快滤波保证回程响应。 */
@@ -225,17 +245,10 @@
          * 车慢于目标(manual_v-v>0) -> 向前摆腿(sw>0);
          * 车快于目标(manual_v-v<0) -> 向后摆腿刹车(sw<0)。
          * auto 用 SIGN=-1, 手动速度环方向相反, 取 -SIGN。 */
-        /* 手动驾驶腿摆: 直接用按键方向驱动固定小幅度(不依赖 body_v
-         * 反馈 —— 起步/加减速瞬间 body_v_filt 剧烈振荡 ±2~4m/s,
-         * 速度误差环会让腿摆目标来回翻转, 表现为一抽一抽, 用户实测)。
-         * 按 W(manual_v>0) 腿摆向正, 按 S(manual_v<0) 腿摆向负;
-         * 幅度由 SIMPLE_ORIGIN_LEG_KD*V_MAX 决定(≈0.024m), 平滑
-         * 变化率由 leg_step_pb 限幅。A/D 纯转向时腿摆保持中立。 */
-        leg_ref_pb = (fabsf(g_balance.manual_v) >= 0.05f &&
-                      g_balance.run_time > 1.0f)
-                   ? (g_balance.manual_v > 0.0f ? 1.0f : -1.0f) *
-                     SIMPLE_ORIGIN_LEG_KD * SIMPLE_MANUAL_V_MAX
-                   : 0.0f;
+        /* 手动 W/S 腿摆保持中立: v3 轮腿车前进/后退由"目标 pitch 偏移
+         * -> 平衡环输出轮扭矩"驱动(见上方 neutral 计算), 腿摆同步摆动
+         * 反而产生左右差速让车打转(用户实测 yaw 漂 100°+)。 */
+        leg_ref_pb = 0.0f;
         leg_ref_pb = clampf_local(leg_ref_pb, -SIMPLE_ORIGIN_LEG_MAX, SIMPLE_ORIGIN_LEG_MAX);
         g_balance.leg_pos_i = 0.0f;   /* 手动时清掉 auto 位置积分 */
     }

@@ -203,9 +203,10 @@
 
 #ifndef SIMPLE_YAW_MAX
 /* 偏航差动扭矩最大值，单位 Nm；最终还会被俯仰扭矩余量门控。
- * v3 新模型差速/陀螺符号未标定前先关闭, 防止差速正反馈把车甩翻。 */
+ * v3 手动驾驶时左右轮微小差速会积累成 90°+ 漂移(用户实测), yaw 环
+ * 必须开启。初始 1.2Nm(旧模型值), 若方向反了调 SIMPLE_YAW_SIGN。 */
 #if MODEL_V3
-#define SIMPLE_YAW_MAX 0.0f   /* 先验证纯 pitch */
+#define SIMPLE_YAW_MAX 1.2f
 #else
 #define SIMPLE_YAW_MAX 1.2f
 #endif

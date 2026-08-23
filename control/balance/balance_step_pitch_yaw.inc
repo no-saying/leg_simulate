@@ -177,6 +177,12 @@
     if (g_balance.manual_active) yaw_gate_pb = 1.0f;
     float yaw_lim_pb = SIMPLE_YAW_MAX * yaw_gate_pb;
     if (g_balance.manual_active) {
+        if (fabsf(g_balance.manual_yaw) < 0.05f) {
+            /* 手动前进/后退(无 A/D 转向): yaw 位置纠偏用小限幅,
+             * 只压住轮子差速造成的慢漂, 不抢前进共模扭矩。
+             * 实测 32Nm 纠偏会与驱动竞争 -> 差速过冲振荡。 */
+            yaw_lim_pb = SIMPLE_YAW_MAX;
+        } else {
         /* 手动转向扭矩随前进速度衰减: 高速行驶中打方向更柔，防掀翻。 */
         float yaw_spd_scale = 1.0f - fabsf(g_balance.body_v_filt) /
                                       SIMPLE_MANUAL_YAW_SPEED_GATE;
@@ -186,6 +192,7 @@
         if (fabsf(g_balance.manual_v) < 0.05f)
             yaw_spd_scale = 1.0f;
         yaw_lim_pb = SIMPLE_MANUAL_YAW_MAX * yaw_gate_pb * yaw_spd_scale;
+        }
     }
 
     g_balance.yaw_elapsed += dt_f;
@@ -201,18 +208,26 @@
         }
 
         float yaw_rate_ref_pb;
-        if (g_balance.manual_active) {
+        if (g_balance.manual_active && fabsf(g_balance.manual_yaw) >= 0.05f) {
             /* A/D 直接给偏航角速度(已斜坡化)，yaw 位置环让位。
              * 误差公式 yaw_rate + ref，稳态 yaw_rate = -ref，
              * 所以 ref 取反才是“按 manual_yaw 的方向转”。 */
             yaw_rate_ref_pb = -g_balance.manual_yaw;
         } else {
-            yaw_rate_ref_pb = SIMPLE_YAW_POS_KP * yaw_err_pb +
-                              SIMPLE_YAW_KI * g_balance.yaw_i;
+            /* 手动 W/S 前进(无 A/D 转向)或静止: 保持位置纠偏,
+             * 防止轮子微小差速积累成 90°+ yaw 漂移(用户实测)。
+             * A/D 转向时 manual_yaw 非零走上一分支。 */
+            if (g_balance.manual_active)
+                yaw_rate_ref_pb = SIMPLE_YAW_POS_KP * yaw_err_pb;
+            else
+                yaw_rate_ref_pb = SIMPLE_YAW_POS_KP * yaw_err_pb +
+                                  SIMPLE_YAW_KI * g_balance.yaw_i;
         }
         /* 手动模式(含 T 键小陀螺 3.0rad/s)放开角速度参考限幅,
-         * auto 仍用 1.6rad/s 的保守上限。 */
-        float yaw_ref_max_pb = g_balance.manual_active
+         * auto 仍用 1.6rad/s 的保守上限。
+         * 手动前进(无转向)时用保守上限, 纠偏不过冲。 */
+        float yaw_ref_max_pb = (g_balance.manual_active &&
+                                fabsf(g_balance.manual_yaw) >= 0.05f)
                              ? SIMPLE_MANUAL_YAW_RATE_MAX
                              : SIMPLE_YAW_RATE_MAX;
         yaw_rate_ref_pb = clampf_local(yaw_rate_ref_pb,

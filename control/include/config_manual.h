@@ -44,7 +44,7 @@
 /* 手动转向差动扭矩上限，单位 Nm。俯仰保持的共模扭矩会占掉大部分轮上
  * 力矩余量，2.5 推不动原地转(实测只有 ~3°/s)；12 只到 72°/s，
  * 24 到 149°/s, 32 让 3.0rad/s 的小陀螺目标基本达到。 */
-#define SIMPLE_MANUAL_YAW_MAX 32.0f
+#define SIMPLE_MANUAL_YAW_MAX 8.0f   /* v3: 摩擦1.0, 32Nm差速会掀翻/前冲 */
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE_KP
@@ -162,6 +162,19 @@
 #ifndef SIMPLE_MANUAL_STOP_V
 /* 松手停车完成判速，单位 m/s；低于该值后恢复自动保持。 */
 #define SIMPLE_MANUAL_STOP_V 0.06f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_GAIN
+/* 手动 W/S 速度误差 -> 目标俯仰角增益，单位 rad/(m/s)。
+ * v3 腿摆弱, 前进/后退必须靠目标 pitch 偏移让平衡环输出轮扭矩:
+ * 按 W(manual_v>0) 车慢于目标 -> 目标 pitch 前倾 -> 轮扭矩向前推。
+ * 0.04 rad/(m/s): 1.2m/s 误差 -> 4.8° 前倾, 与松手刹车限幅同量级。 */
+#define SIMPLE_MANUAL_PITCH_GAIN 0.12f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_MAX
+/* 手动行驶目标俯仰角上限，单位 rad(约 8°)；防止加速指令把车压成趴地。 */
+#define SIMPLE_MANUAL_PITCH_MAX 0.140f
 #endif
 
 #ifndef SIMPLE_MANUAL_PITCH_GATE
