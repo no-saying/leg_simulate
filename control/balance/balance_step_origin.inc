@@ -225,24 +225,23 @@
          * 车慢于目标(manual_v-v>0) -> 向前摆腿(sw>0);
          * 车快于目标(manual_v-v<0) -> 向后摆腿刹车(sw<0)。
          * auto 用 SIGN=-1, 手动速度环方向相反, 取 -SIGN。 */
-        float v_err_m = g_balance.manual_v - g_balance.body_v_filt;
-        /* 纯转向(A/D 无前后指令): 差速会把 body_v 误读成假前进/后退,
-         * 腿摆必须保持中立, 否则会被假信号拉翻。 */
+        /* 手动驾驶腿摆: 直接用按键方向驱动固定小幅度(不依赖 body_v
+         * 反馈 —— 起步/加减速瞬间 body_v_filt 剧烈振荡 ±2~4m/s,
+         * 速度误差环会让腿摆目标来回翻转, 表现为一抽一抽, 用户实测)。
+         * 按 W(manual_v>0) 腿摆向正, 按 S(manual_v<0) 腿摆向负;
+         * 幅度由 SIMPLE_ORIGIN_LEG_KD*V_MAX 决定(≈0.024m), 平滑
+         * 变化率由 leg_step_pb 限幅。A/D 纯转向时腿摆保持中立。 */
         leg_ref_pb = (fabsf(g_balance.manual_v) >= 0.05f &&
                       g_balance.run_time > 1.0f)
-                   ? -SIMPLE_ORIGIN_SIGN * SIMPLE_ORIGIN_LEG_KD *
-                     clampf_local(v_err_m, -2.0f, 2.0f)
+                   ? (g_balance.manual_v > 0.0f ? 1.0f : -1.0f) *
+                     SIMPLE_ORIGIN_LEG_KD * SIMPLE_MANUAL_V_MAX
                    : 0.0f;
         leg_ref_pb = clampf_local(leg_ref_pb, -SIMPLE_ORIGIN_LEG_MAX, SIMPLE_ORIGIN_LEG_MAX);
         g_balance.leg_pos_i = 0.0f;   /* 手动时清掉 auto 位置积分 */
-#if MODEL_V3
-    } else if (SIMPLE_ORIGIN_ENABLE && g_balance.run_time > 1.5f &&
+    }
+#if SIMPLE_AUTO_SWING_ENABLE
+    else if (SIMPLE_ORIGIN_ENABLE && g_balance.run_time > 1.5f &&
                abs_pitch_pb < 0.35f) {
-        /* v3: 自然平衡偏角约 12°, 放宽 pitch 门控让位置环驱动腿摆
-         * (否则站着时腿摆指令被切断 -> "腿没动")。 */
-#else
-    } else if (SIMPLE_ORIGIN_ENABLE && g_balance.run_time > 2.0f && abs_pitch_pb < 0.17f) {
-#endif
         /* 腿摆位置环不依赖短窗口 return_ok: 车一漂移就要摆腿纠正,
          * 否则漂移过程里里程计窗口失效会让腿摆失联、只剩慢速 tp。 */
         float pos_err_pb = g_balance.pos - g_balance.hold_pos;
@@ -273,6 +272,7 @@
             fabsf(g_balance.body_v_filt) < 0.03f)
             leg_ref_pb = 0.0f;
     }
+#endif /* SIMPLE_AUTO_SWING_ENABLE */
     if (slip_low_pb) {
         /* 打滑补偿: 轮不转车在滑时, 腿摆推力只会加剧滑动(推力被
          * 地面滑动消耗, 车滑得更远), 且 es 位置不可信(轮不转
@@ -281,10 +281,11 @@
         leg_ref_pb = 0.0f;
         g_balance.leg_pos_i = 0.0f;
     }
-    /* 摆腿变化率限幅: 3 rad/s, 摆腿响应要能跟上速度环,
-     * 太慢会让重心调整滞后、pitch 被迫去补速度误差。 */
-    /* 摆腿变化率限幅: 6 rad/s, 响应加快——用户反馈腿摆太慢刹不住车。 */
-    float leg_step_pb = 0.006f;
+    /* 摆腿变化率限幅。v3 的 sw 单位是米(轮轴前向偏移), 0.006/步
+     * (1ms 步长) = 6 m/s 的摆腿速度, 满幅 0.03m 只需 5ms, 视觉上
+     * 就是"一抽一抽"(用户实测)。改为 0.0003/步 = 0.3 m/s, 满幅
+     * 约 100ms 平滑到位, 既能跟上加减速又不抽搐。 */
+    float leg_step_pb = 0.0003f;
     g_balance.leg_swing += clampf_local(leg_ref_pb - g_balance.leg_swing, -leg_step_pb, leg_step_pb);
     float ext_step_pb = 0.00045f;
     float ext_ref_pb = ext_damp_ref;
@@ -393,6 +394,12 @@
         if (fabsf(g_balance.body_v_filt) < 0.005f &&
             fabsf(g_balance.imu_acc_filt) < 0.15f)
             g_balance.simple_imu_v *= 0.995f;
+        /* 静止检测(zupt)成立时直接清零 IMU 积分速度: 即使 IMU 加速度
+         * 滤波有小偏置(|a|>0.15 时上面 0.995 泄放不触发), 长时间积分
+         * 仍会积累假速度(实测静止 120s 后里程计漂到 -400m, GUI trail
+         * 点一直动而车体不动, 用户反馈"模型钉住但点在动")。 */
+        if (zupt_pb)
+            g_balance.simple_imu_v = 0.0f;
         /* 离地/冲击时不积分位置; 其余时间用融合速度积分。 */
         if (!airborne_pb && !impact_pb) {
             float v_int_pb = g_balance.simple_imu_v;

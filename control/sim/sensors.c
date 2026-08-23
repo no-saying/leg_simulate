@@ -115,10 +115,14 @@ void sensors_set_initial_pose(const mjModel *m, mjData *d)
     d->qpos[4] = IMU_BAKE_Q_X;
     d->qpos[5] = IMU_BAKE_Q_Y;
     d->qpos[6] = IMU_BAKE_Q_Z;
-    /* 驱动关节初始设中位(重心在轮轴正上方): claf0=+0.2, thigh=-0.2 */
+    /* 驱动关节初始设中位(重心在轮轴正上方): claf0=+0.2, thigh=-0.2。
+     * 注意: v3 右腿是左腿的镜像(J_right=-J_left), 同样腿长/腿摆下
+     * 右腿关节角必须取反(claf0=-0.2, thigh=+0.2)。旧代码四腿同符号
+     * 导致右腿初始 L=0.0586、左腿 0.1145, 腿长伺服一启动就输出
+     * 116N 巨力拉右腿, 表现为"右腿摆动方向反了、车原地转圈"。 */
     const char *mid[4] = {"Left_front_joint", "Left_rear_joint",
                           "Right_front_joint", "Right_rear_joint"};
-    const float mid_v[4] = {0.2f, -0.2f, 0.2f, -0.2f};
+    const float mid_v[4] = {0.2f, -0.2f, -0.2f, 0.2f};
     for (int i = 0; i < 4; i++) {
         int j = mj_name2id(m, mjOBJ_JOINT, mid[i]);
         if (j >= 0) d->qpos[m->jnt_qposadr[j]] = mid_v[i];

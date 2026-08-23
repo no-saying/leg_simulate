@@ -162,13 +162,15 @@
  *     KpL=550(≈547.8), KdL=20(>2*sqrt(0.071*547.8)=12.5)
  *     KpS=920(≈924.4), KdS=25(>2*sqrt(0.123*924.4)=21.3)
  *   结构: 位置环(L/sw 误差)->虚拟力->J^T 关节力矩/50。 */
-#define LEG_V3_SERVO_KP 550.0f
-#define LEG_V3_SERVO_KD 20.0f
+#define LEG_V3_SERVO_KP 1200.0f  /* v3: 折中: 跑通版2000太硬(摆腿时猛拉抽),
+                                  * 辨识值550太软(平衡打转)。1200保持支撑
+                                  * 同时降低摆腿耦合振荡。 */
+#define LEG_V3_SERVO_KD 60.0f
 #define LEG_V3_LEG_GAIN 50.0f
 /* 腿摆环(同上辨识): 全行程直接三环, 无死区。 */
-#define LEG_V3_SW_KP   920.0f
-#define LEG_V3_SW_KD   25.0f
-#define LEG_V3_SW_DEAD 0.0f
+#define LEG_V3_SW_KP   300.0f  /* v3: 跑通版腿摆软锁刚度 */
+#define LEG_V3_SW_KD   10.0f
+#define LEG_V3_SW_DEAD 0.02f   /* v3: 跑通版死区: 平衡时腿摆自由 */
 /* 中位(按重心标定, ident_leg_joint_map.py): claf0=+0.22/thigh=-0.22
  * 时合成重心落在轮轴正上方, L≈0.117, sw≈-0.017(轮子竖直)。 */
 #define LEG_V3_L_MID  0.117f

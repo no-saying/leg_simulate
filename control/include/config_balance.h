@@ -44,7 +44,7 @@
  * v3 新模型(轮轴同向、安装矩阵补偿)俯仰符号与旧模型相反:
  * 扫参实测 tau = -KP*pitch - KD*pitch_rate 才能稳定站立。 */
 #if MODEL_V3
-#define SIMPLE_PITCH_KP (-4.0f)   /* v3: 轮扭矩限0.5Nm(摩擦1.0), 小增益防饱和 */
+#define SIMPLE_PITCH_KP (-40.0f)  /* v3: 跑通版强度(2e20a38) */
 #else
 #define SIMPLE_PITCH_KP 240.0f
 #endif
@@ -54,7 +54,7 @@
 /* 俯仰角速度 D 增益。调大: 阻尼更强，压掉目标俯仰低周摇摆引起的
  * pitch 过冲(实测 tp=2.4° 时 pitch 冲到 3.1°)；过大: 放大陀螺噪声。 */
 #if MODEL_V3
-#define SIMPLE_PITCH_KD (-1.2f)
+#define SIMPLE_PITCH_KD (-12.0f)
 #else
 #define SIMPLE_PITCH_KD 85.0f
 #endif
@@ -134,7 +134,7 @@
 #ifndef SIMPLE_TAU_START
 /* 启动早期共模扭矩限幅，单位 Nm；重轮下 72 会让轮子打滑级联，降到 24。 */
 #if MODEL_V3
-#define SIMPLE_TAU_START 0.5f    /* v3: 每轮扭矩限=摩擦1.0*法向12N*半径0.043≈0.52Nm */
+#define SIMPLE_TAU_START 8.0f  /* v3: 跑通版轮扭矩上限 */
 #else
 #define SIMPLE_TAU_START 72.0f
 #endif
@@ -143,7 +143,7 @@
 #ifndef SIMPLE_TAU_RUN
 /* 正常运行共模扭矩限幅，单位 Nm。 */
 #if MODEL_V3
-#define SIMPLE_TAU_RUN 0.5f
+#define SIMPLE_TAU_RUN 8.0f
 #else
 #define SIMPLE_TAU_RUN 72.0f
 #endif

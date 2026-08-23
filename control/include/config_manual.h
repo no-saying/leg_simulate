@@ -271,7 +271,7 @@
 /* 腿摆速度环增益，单位 rad/(m/s): 速度误差 -> 腿摆偏置。
  * 0.15 + ±2.0m/s 误差窗口: 0.2m/s 漂移摆 0.03rad(1.7°),
  * 2m/s 才摆满 0.18rad, 幅度随误差渐变, 不再一打就是满幅。 */
-#define SIMPLE_ORIGIN_LEG_KD 0.15f
+#define SIMPLE_ORIGIN_LEG_KD 0.02f  /* v3: 0.03m/1.5m/s, 摆腿温和 */
 #endif
 
 #ifndef SIMPLE_ORIGIN_LEG_KI
@@ -280,8 +280,21 @@
 #endif
 
 #ifndef SIMPLE_ORIGIN_LEG_MAX
-/* 腿摆偏置限幅，单位 rad(约 10°)。 */
-#define SIMPLE_ORIGIN_LEG_MAX 0.18f
+/* 腿摆偏置限幅。v3 的 sw 单位是米(轮轴前向偏移), 0.18m 经反解
+ * (lf += 9.545×sw) 会变成 1.72rad≈98° 的关节摆动, 用户实测"摆动
+ * 角度太大"直接翻车。改为 ±0.03m ≈ 关节 ±0.29rad(±16°)。 */
+#define SIMPLE_ORIGIN_LEG_MAX 0.03f
+#endif
+
+#ifndef SIMPLE_AUTO_SWING_ENABLE
+/* 静止平衡是否启用自动位置环摆腿。
+ * 0 = 静止时不摆腿, 只靠轮子俯仰环平衡(腿锁在名义摆角)。
+ *     旧版 auto 位置环把 leg_ref 打到 -0.18, 而 v3 的 sw 单位是米,
+ *     0.18m 摆幅对应关节 1.7rad≈98°, 腿大幅抽动反而翻车(用户实测)。
+ * 1 = 启用旧版 auto 位置环摆腿(加减速时腿摆移动重心), 需要配合
+ *     米级小限幅(如 ±0.03m)使用, 否则摆幅过大。
+ */
+#define SIMPLE_AUTO_SWING_ENABLE 0
 #endif
 
 #endif
