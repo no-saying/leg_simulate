@@ -154,19 +154,21 @@
 #endif
 
 #ifndef LEG_V3_SERVO_KP
-/* v3 腿伺服(锁虚拟腿长): 直接锁关节角会与平衡冲突(轻闭链机构),
- * 改为锁虚拟腿长 L(保持车高, 提供竖直支撑力), 腿摆 sw 自由。
- *   tauL = -KP_L*(L-L_NOM) - KD_L*Ldot   (虚拟竖直力)
- *   关节 ctrl = J_L * tauL / 50
- * 标定: KP_L=2000 KD_L=80 时 L∈[0.078,0.093] 且 15s 平衡稳定。 */
-#define LEG_V3_SERVO_KP 2000.0f
-#define LEG_V3_SERVO_KD 80.0f
+/* v3 腿三环(空中辨识参数, scripts/tools/ident_leg_joint_map.py):
+ *   虚拟坐标动力学(经 J^-T·(M/B/K)·J^-1 完整变换, 左腿):
+ *     腿长 L : F_L = 0.071*Ldd + 19.1*Ld + 547.8*L
+ *     腿摆 sw: F_sw = 0.123*swdd + 35.1*swd + 924.4*sw
+ *   位置环 P 取等效刚度量级(补偿机构约束), D 取 2*sqrt(M*K) 加裕度:
+ *     KpL=550(≈547.8), KdL=20(>2*sqrt(0.071*547.8)=12.5)
+ *     KpS=920(≈924.4), KdS=25(>2*sqrt(0.123*924.4)=21.3)
+ *   结构: 位置环(L/sw 误差)->虚拟力->J^T 关节力矩/50。 */
+#define LEG_V3_SERVO_KP 550.0f
+#define LEG_V3_SERVO_KD 20.0f
 #define LEG_V3_LEG_GAIN 50.0f
-/* 腿摆 sw 软锁(死区): 偏差小于死区时腿摆自由(平衡依赖腿摆柔性),
- * 超出死区才拉回, 防止腿摆漂到前面/后面造成"坐地"姿态。 */
-#define LEG_V3_SW_KP   300.0f
-#define LEG_V3_SW_KD   10.0f
-#define LEG_V3_SW_DEAD 0.02f   /* 死区减小: 让腿摆指令能实际推动腿 */
+/* 腿摆环(同上辨识): 全行程直接三环, 无死区。 */
+#define LEG_V3_SW_KP   920.0f
+#define LEG_V3_SW_KD   25.0f
+#define LEG_V3_SW_DEAD 0.0f
 #endif
 
 #endif
