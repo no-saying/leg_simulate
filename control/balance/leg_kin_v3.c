@@ -39,3 +39,31 @@ void leg_kin_v3_velocities(float lfv, float lrv, float rfv, float rrv,
     *l_dot = 0.5f * (l_l_dot + l_r_dot);
     *r_dot = l_r_dot;
 }
+
+void leg_kin_v3_forces(float F_l, float F_sw_l, float F_r, float F_sw_r,
+                       float *tau_lf, float *tau_lr,
+                       float *tau_rf, float *tau_rr)
+{
+    /* 左腿: J^T [F_L, F_sw] */
+    *tau_lf = LEG_V3_J_L0 * F_l + LEG_V3_J_S0 * F_sw_l;
+    *tau_lr = LEG_V3_J_L1 * F_l + LEG_V3_J_S1 * F_sw_l;
+    /* 右腿镜像: 取负 */
+    *tau_rf = -LEG_V3_J_L0 * F_r - LEG_V3_J_S0 * F_sw_r;
+    *tau_rr = -LEG_V3_J_L1 * F_r - LEG_V3_J_S1 * F_sw_r;
+}
+
+void leg_kin_v3_force_split(float tau_lf, float tau_lr,
+                            float tau_rf, float tau_rr,
+                            float *F_l, float *F_sw_l,
+                            float *F_r, float *F_sw_r)
+{
+    /* 左腿: [F_L, F_sw] = J^-T [τ_lf, τ_lr]
+     * J^-1 = [[K_LA, K_LB],[K_LC, K_LD]] = [[7.5823, 9.5453],[-6.7287, 9.3098]]
+     * J^-T = [[K_LA, K_LC],[K_LB, K_LD]] = [[7.5823, -6.7287],[9.5453, 9.3098]]
+     * F_L = 7.5823*τ_lf - 6.7287*τ_lr ; F_sw = 9.5453*τ_lf + 9.3098*τ_lr */
+    *F_l    =  LEG_V3_K_LA * tau_lf + LEG_V3_K_LC * tau_lr;
+    *F_sw_l =  LEG_V3_K_LB * tau_lf + LEG_V3_K_LD * tau_lr;
+    /* 右腿: 关节力矩已镜像(τ_rf=-..., τ_rr=-...), 力也镜像 */
+    *F_r    = -LEG_V3_K_LA * tau_rf - LEG_V3_K_LC * tau_rr;
+    *F_sw_r = -LEG_V3_K_LB * tau_rf - LEG_V3_K_LD * tau_rr;
+}

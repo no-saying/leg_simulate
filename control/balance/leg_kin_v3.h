@@ -57,6 +57,22 @@ void leg_kin_v3_inverse(float sw_dev, float ext_l, float ext_r,
 void leg_kin_v3_velocities(float lfv, float lrv, float rfv, float rrv,
                            float *sw_dot, float *l_dot, float *r_dot);
 
+/* 虚拟力(腿长力 F_L, 腿摆力 F_sw, 单位 N) -> 4 关节电机力矩(J^T, Nm):
+ *   τ_lf = J_L0*F_L + J_S0*F_sw,  τ_lr = J_L1*F_L + J_S1*F_sw
+ *   右腿镜像取负。 */
+void leg_kin_v3_forces(float F_l, float F_sw_l, float F_r, float F_sw_r,
+                       float *tau_lf, float *tau_lr,
+                       float *tau_rf, float *tau_rr);
+
+/* 力分配(J^-T): 4 关节电机力矩 -> 虚拟力(腿长/腿摆, 每侧 2 个):
+ *   [F_L ]   [ 7.5823  9.5453] [τ_lf]
+ *   [F_sw] = [-6.7287  9.3098] [τ_lr]
+ *   右腿: [F_L, F_sw] = J^-T·[-τ_rf, -τ_rr] (镜像)。 */
+void leg_kin_v3_force_split(float tau_lf, float tau_lr,
+                            float tau_rf, float tau_rr,
+                            float *F_l, float *F_sw_l,
+                            float *F_r, float *F_sw_r);
+
 #ifdef __cplusplus
 }
 #endif

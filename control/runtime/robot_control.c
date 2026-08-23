@@ -365,18 +365,13 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
         e_sw_r = 0.0f;
     float tau_sw_l = -(LEG_V3_SW_KP * e_sw_l + LEG_V3_SW_KD * sw_dot_dbg);
     float tau_sw_r = -(LEG_V3_SW_KP * e_sw_r + LEG_V3_SW_KD * sw_dot_dbg);
-    s->ctrl[0] = clampf_runtime((LEG_V3_J_L0 * tau_l + LEG_V3_J_S0 * tau_sw_l)
-                                / LEG_V3_LEG_GAIN,
-                                -10.0f, 10.0f);
-    s->ctrl[1] = clampf_runtime((LEG_V3_J_L1 * tau_l + LEG_V3_J_S1 * tau_sw_l)
-                                / LEG_V3_LEG_GAIN,
-                                -10.0f, 10.0f);
-    s->ctrl[3] = clampf_runtime((-LEG_V3_J_L0 * tau_r - LEG_V3_J_S0 * tau_sw_r)
-                                / LEG_V3_LEG_GAIN,
-                                -10.0f, 10.0f);
-    s->ctrl[4] = clampf_runtime((-LEG_V3_J_L1 * tau_r - LEG_V3_J_S1 * tau_sw_r)
-                                / LEG_V3_LEG_GAIN,
-                                -10.0f, 10.0f);
+    float tau_lf, tau_lr, tau_rf, tau_rr;
+    leg_kin_v3_forces(tau_l, tau_sw_l, tau_r, tau_sw_r,
+                      &tau_lf, &tau_lr, &tau_rf, &tau_rr);
+    s->ctrl[0] = clampf_runtime(tau_lf / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
+    s->ctrl[1] = clampf_runtime(tau_lr / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
+    s->ctrl[3] = clampf_runtime(tau_rf / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
+    s->ctrl[4] = clampf_runtime(tau_rr / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
 #else
     LegJointSetRef(&low->lf, lf_r);
     LegJointSetRef(&low->lr, lr_r);
