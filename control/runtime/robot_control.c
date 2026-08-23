@@ -340,9 +340,10 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
     leg_kin_v3_velocities((float)s->lf_vel, (float)s->lr_vel,
                           (float)s->rf_vel, (float)s->rr_vel,
                           &sw_dot_dbg, &l_dot, &r_dot);
-    float tau_l = -(LEG_V3_SERVO_KP * (leg_l - LEG_V3_L_NOM)
+    /* 腿长目标用中位(重心在轮轴正上方), 而非名义装配位 */
+    float tau_l = -(LEG_V3_SERVO_KP * (leg_l - LEG_V3_L_MID)
                     + LEG_V3_SERVO_KD * l_dot);
-    float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_NOM)
+    float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_MID)
                     + LEG_V3_SERVO_KD * r_dot);
     /* 腿摆 sw 软锁: 目标 = balance 输出的 swing_ref(含速度/位置环的
      * 腿摆指令, 加减速时腿前后摆辅助; 由 leg_kin_v3_forward 保证单位一致)。

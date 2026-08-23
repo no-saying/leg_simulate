@@ -169,6 +169,9 @@
 #define LEG_V3_SW_KP   920.0f
 #define LEG_V3_SW_KD   25.0f
 #define LEG_V3_SW_DEAD 0.0f
+/* 中位(按重心标定, ident_leg_joint_map.py): claf0=+0.22/thigh=-0.22
+ * 时合成重心落在轮轴正上方, L≈0.117, sw≈-0.017(轮子竖直)。 */
+#define LEG_V3_L_MID  0.117f
 #endif
 
 #endif

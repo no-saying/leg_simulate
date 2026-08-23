@@ -106,17 +106,31 @@ static int cache_sensor_addresses(const mjModel *m)
 
 void sensors_set_initial_pose(const mjModel *m, mjData *d)
 {
-    (void)m;
     /* v3 模型: 轮底触地(轮心 z=-0.107, 半径 0.043, 地面 -0.152),
      * 初始姿态 = 绕 x +90° 立起(与 IMU_BAKE_Q_* 一致)。 */
     d->qpos[0] = 0.0;
     d->qpos[1] = 0.0;
-    d->qpos[2] = -0.022;   /* 轮底刚好触地(与 keyframe 一致) */
+    d->qpos[2] = -0.025;   /* 中位车高轮子着地 */
     d->qpos[3] = IMU_BAKE_Q_W;
     d->qpos[4] = IMU_BAKE_Q_X;
     d->qpos[5] = IMU_BAKE_Q_Y;
     d->qpos[6] = IMU_BAKE_Q_Z;
-    for (int i = 7; i < m->nq; i++) d->qpos[i] = 0.0;
+    /* 驱动关节初始设中位(重心在轮轴正上方): claf0=+0.2, thigh=-0.2 */
+    const char *mid[4] = {"Left_front_joint", "Left_rear_joint",
+                          "Right_front_joint", "Right_rear_joint"};
+    const float mid_v[4] = {0.2f, -0.2f, 0.2f, -0.2f};
+    for (int i = 0; i < 4; i++) {
+        int j = mj_name2id(m, mjOBJ_JOINT, mid[i]);
+        if (j >= 0) d->qpos[m->jnt_qposadr[j]] = mid_v[i];
+    }
+    for (int i = 7; i < m->nq; i++) {
+        int is_mid = 0;
+        for (int k = 0; k < 4; k++) {
+            int j = mj_name2id(m, mjOBJ_JOINT, mid[k]);
+            if (j >= 0 && i == m->jnt_qposadr[j]) { is_mid = 1; break; }
+        }
+        if (!is_mid) d->qpos[i] = 0.0;
+    }
     for (int i = 0; i < m->nv; i++) d->qvel[i] = 0.0;
 }
 
