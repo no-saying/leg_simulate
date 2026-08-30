@@ -167,10 +167,14 @@
                                   * 同时降低摆腿耦合振荡。 */
 #define LEG_V3_SERVO_KD 60.0f
 #define LEG_V3_LEG_GAIN 50.0f
-/* 腿摆环(同上辨识): 全行程直接三环, 无死区。 */
-#define LEG_V3_SW_KP   300.0f  /* v3: 跑通版腿摆软锁刚度 */
-#define LEG_V3_SW_KD   10.0f
-#define LEG_V3_SW_DEAD 0.02f   /* v3: 跑通版死区: 平衡时腿摆自由 */
+/* 腿摆环(同上辨识): 全行程直接三环, 无死区。
+ * KP=450: 比跑通版 300 更硬, 转向时能顶住轮子反作用力不让腿被剪开;
+ * KD=18: 左右腿各自的速度阻尼(差模/剪刀模式也被阻尼), 压掉高频晃动;
+ * 死区 0.005: 原来 0.02 死区让腿摆误差积累过阈值后伺服才介入,
+ * 形成"自由-猛拉-自由"极限环, 视觉上就是一抽一抽。 */
+#define LEG_V3_SW_KP   450.0f
+#define LEG_V3_SW_KD   18.0f
+#define LEG_V3_SW_DEAD 0.005f
 /* 中位(按重心标定, ident_leg_joint_map.py): claf0=+0.22/thigh=-0.22
  * 时合成重心落在轮轴正上方, L≈0.117, sw≈-0.017(轮子竖直)。 */
 #define LEG_V3_L_MID  0.117f

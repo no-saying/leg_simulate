@@ -4,6 +4,16 @@
     float p_err_pb = pitch - g_balance.neutral;
     float kp_pb = SIMPLE_PITCH_KP;
     float kd_pb = SIMPLE_PITCH_KD;
+    /* 手动驾驶用更软的俯仰增益: 自动/启动保留强增益(-40)救瞬态,
+     * 手动时轮上摩擦只支持 ~0.5Nm/轮, 强增益的扭矩需求会烧胎空转
+     * 反推车体滑动(漂移根因)。软增益让轮子咬地纯滚动。 */
+    if ((g_balance.manual_active || g_balance.post_manual) &&
+        g_balance.run_time > 1.0f) {
+        /* 手动(含 W/S/A/D)统一用软增益: 强增益在摆腿换向/转向时
+         * 扭矩需求超摩擦, 烧胎反推车体漂移。软增益让轮子咬地。 */
+        kp_pb = SIMPLE_MANUAL_PITCH_KP;
+        kd_pb = SIMPLE_MANUAL_PITCH_KD;
+    }
 #if SIMPLE_GAIN_SCHED_ENABLE
     {
         float e_abs_pb = fabsf(p_err_pb);
@@ -49,9 +59,10 @@
                                                   0.0f, 1.0f);
     float vel_damp_pb = SIMPLE_VEL_DAMP * vel_damp_scale_pb;
     if (g_balance.manual_active && fabsf(g_balance.manual_v) >= 0.05f)
-        /* 手动时保留 60% 速度阻尼: 腿摆管加减速, 轮子仍要能刹住
-         * 启动/超速动量(0.3 太弱, 启动振荡 -2.4m/s 刹不住)。 */
-        vel_damp_pb *= 0.60f;
+        /* 手动 W/S 完全关闭轮速阻尼: 摆腿就是速度执行器(固定摆角
+         * 产生恒加速度, 随速度回中软限速)。轮速阻尼在 1m/s 时就要
+         * 1.2Nm, 超过轮上摩擦极限 -> 烧胎空转滑动(漂移根因)。 */
+        vel_damp_pb = 0.0f;
     if (g_balance.manual_active && fabsf(g_balance.manual_yaw) >= 0.05f &&
         fabsf(g_balance.manual_v) < 0.05f)
         /* A/D 纯转向: body_v 是差速伪影(轮子差速被误读成前进),
@@ -109,6 +120,22 @@
         brake_pb = clampf_local(brake_pb, 0.0f, SIMPLE_FAR_BRAKE_MAX);
         tau_cmd_pb -= ((g_balance.body_v_filt > 0.0f) ? 1.0f : -1.0f) * brake_pb;
     }
+    /* A/D 纯转向的"原地保持": v3 闭链腿几何在 yaw 时会把轮轴反作用
+     * 耦合进前向位移, 实测转 90° 漂 4m+。轮子差速扭矩刹不住这种
+     * 滑动, 这里用里程计+IMU 融合速度测真实前滑, 直接给共模轮扭矩
+     * 把车钉在进入点原地转(限幅小于摩擦极限, 不会自己打滑)。 */
+    if (g_balance.manual_active &&
+        fabsf(g_balance.manual_yaw) >= 0.05f &&
+        fabsf(g_balance.manual_v) < 0.05f) {
+        float drift_pos_pb = g_balance.pos - g_balance.hold_pos;
+        float drift_v_pb = g_balance.simple_imu_v;
+        float drift_tau_pb = -TURN_DRIFT_POS_KP * drift_pos_pb
+                             - TURN_DRIFT_V_KP * drift_v_pb;
+        drift_tau_pb = clampf_local(drift_tau_pb,
+                                    -TURN_DRIFT_TAU_MAX,
+                                     TURN_DRIFT_TAU_MAX);
+        tau_cmd_pb += drift_tau_pb;
+    }
 #if SIMPLE_WHEEL_CAPTURE_ENABLE
     if (g_balance.wheel_capture_dir != 0.0f) {
         float cap_tau_pb = SIMPLE_WHEEL_CAPTURE_TAU_MIN +
@@ -154,6 +181,16 @@
     }
 #endif
     tau_cmd_pb = clampf_local(tau_cmd_pb, -tau_max_pb, tau_max_pb);
+    /* 手动驾驶共模扭矩单独压小: 自动/启动保留 8Nm 救住瞬态, 手动时
+     * 轮上摩擦极限 ~0.5Nm/轮, 大扭矩只会烧胎空转反推车体滑动
+     * (实测 -66rad/s 空转、车体前滑 2.5m/s -> 漂移)。手动把共模
+     * 压到摩擦范围内, 车真正滚动。 */
+    if ((g_balance.manual_active || g_balance.post_manual) &&
+        g_balance.run_time > 1.0f) {
+        tau_cmd_pb = clampf_local(tau_cmd_pb,
+                                  -SIMPLE_MANUAL_PITCH_TAU_MAX,
+                                   SIMPLE_MANUAL_PITCH_TAU_MAX);
+    }
     float tau_rate_pb = (g_balance.run_time < 1.20f) ? SIMPLE_RATE_START : SIMPLE_RATE_RUN;
 #if SIMPLE_BIG_RECOVERY
     if (g_balance.run_time > 1.20f && abs_p_pb > 0.14f) tau_rate_pb = 700.0f;

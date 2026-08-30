@@ -44,7 +44,7 @@
  * v3 新模型(轮轴同向、安装矩阵补偿)俯仰符号与旧模型相反:
  * 扫参实测 tau = -KP*pitch - KD*pitch_rate 才能稳定站立。 */
 #if MODEL_V3
-#define SIMPLE_PITCH_KP (-40.0f)  /* v3: 跑通版强度(2e20a38) */
+#define SIMPLE_PITCH_KP (-40.0f)  /* v3: 跑通版强度, 扭矩由上限限制 */
 #else
 #define SIMPLE_PITCH_KP 240.0f
 #endif
@@ -132,9 +132,12 @@
  * ========================================================================== */
 
 #ifndef SIMPLE_TAU_START
-/* 启动早期共模扭矩限幅，单位 Nm；重轮下 72 会让轮子打滑级联，降到 24。 */
+/* 启动早期共模扭矩限幅，单位 Nm(自动模式)。
+ * 启动/静止需要强扭矩救住瞬态, 保持 8Nm;
+ * 手动行驶/转向的扭矩由 SIMPLE_MANUAL_PITCH_TAU_MAX(1.2Nm)单独
+ * 限制, 避免轮子烧胎空转反推车体滑动(漂移根因)。 */
 #if MODEL_V3
-#define SIMPLE_TAU_START 8.0f  /* v3: 跑通版轮扭矩上限 */
+#define SIMPLE_TAU_START 8.0f
 #else
 #define SIMPLE_TAU_START 72.0f
 #endif

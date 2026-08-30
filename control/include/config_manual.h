@@ -18,13 +18,16 @@
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_ACCEL
-/* 手动转向指令变化率上限，单位 rad/s^2。 */
-#define SIMPLE_MANUAL_YAW_ACCEL 2.5f
+/* 手动转向指令变化率上限，单位 rad/s^2。
+ * 2.5 起步太猛 -> yaw 耦合进 pitch 的扰动大, 压不住翻车。0.8 平缓。 */
+#define SIMPLE_MANUAL_YAW_ACCEL 0.8f
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE
-/* A/D 手动转向目标偏航角速度，单位 rad/s。用户反馈转向慢，提到 0.8。 */
-#define SIMPLE_MANUAL_YAW_RATE 0.80f
+/* A/D 手动转向目标偏航角速度，单位 rad/s。
+ * 0.8 时 yaw 耦合进 pitch 的扰动太大, 手动 pitch 环+摩擦极限
+ * 压不住 -> 转向 2s 内翻车。0.4 时扰动减半, 轮子咬得住。 */
+#define SIMPLE_MANUAL_YAW_RATE 0.40f
 #endif
 
 #ifndef SIMPLE_MANUAL_SPIN_YAW_RATE
@@ -43,15 +46,105 @@
 #ifndef SIMPLE_MANUAL_YAW_MAX
 /* 手动转向差动扭矩上限，单位 Nm。俯仰保持的共模扭矩会占掉大部分轮上
  * 力矩余量，2.5 推不动原地转(实测只有 ~3°/s)；12 只到 72°/s，
- * 24 到 149°/s, 32 让 3.0rad/s 的小陀螺目标基本达到。 */
-#define SIMPLE_MANUAL_YAW_MAX 4.0f   /* v3: 摩擦1.0, 大差速反作用前倾 */
+ * 24 到 149°/s, 32 让 3.0rad/s 的小陀螺目标基本达到。
+ * v3 轮腿车偏航惯量只有 ~0.013 kg·m², 0.8Nm 差动(yaw_mix 0.32)
+ * 已经产生 ~200 rad/s² 的偏航加速度, 30ms 内冲到 3.7rad/s 过冲,
+ * 车身被轮子反作用力掀翻(实测 pitch 顶到饱和、车走大圆漂移)。
+ * 0.6Nm 差动(每轮 0.12Nm)足够 0.8rad/s 原地转, 且不扰动 pitch。 */
+#define SIMPLE_MANUAL_YAW_MAX 0.60f
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE_KP
 /* 手动转向偏航角速度增益，单位 Nm/(rad/s)。
  * 7 时稳态 149°/s 稳定不漂; 12 到 159°/s 但自转被扰动带偏(漂 2.7m)。
- * 9 在转速与稳定之间折中。 */
-#define SIMPLE_MANUAL_YAW_RATE_KP 9.0f
+ * v3 轮腿车 9/3 都太高 -> 差速扭矩过大, 偏航率瞬间过冲到 3.7rad/s,
+ * 车身被掀翻。0.8 Nm/(rad/s) + 0.6Nm 上限: 转向力矩柔和,
+ * 偏航率平滑收敛到指令值, 不再打滑/掀翻。 */
+#define SIMPLE_MANUAL_YAW_RATE_KP 1.20f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_TAU_MAX
+/* 手动驾驶时俯仰环共模扭矩上限，单位 Nm。
+ * 自动模式(启动/静止)仍用 8Nm 保证能救住启动瞬态; 手动行驶/转向时
+ * 轮上摩擦极限只有 ~0.5Nm/轮, 8Nm 会让轮子烧胎空转反推车体滑动
+ * (实测 -66rad/s 空转、车体前滑 2.5m/s)。1.2Nm 共模(0.6Nm/轮)
+ * 折中: 静止/转向轮子咬地, 摆腿加减速瞬态允许少量滑动换姿态稳定。 */
+#define SIMPLE_MANUAL_PITCH_TAU_MAX 1.20f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_SPEED_START
+/* 手动 W/S 摆腿随速度衰减的起始速度，单位 m/s。
+ * 摆腿是速度执行器: 固定摆角产生恒定加速度, 没有轮速阻尼会一直
+ * 加速到 4m/s+ 安全刹。速度超过该值后摆腿按比例回中, 软限速在
+ * ~1.5-2m/s 巡航, 不需要轮速阻尼(轮速阻尼会超摩擦烧胎)。 */
+#define SIMPLE_MANUAL_SWING_SPEED_START 1.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_SPEED_RANGE
+/* 摆腿衰减速度窗口，单位 m/s: 从 SPEED_START 到 SPEED_START+RANGE
+ * 摆腿从满幅线性减到 0。 */
+#define SIMPLE_MANUAL_SWING_SPEED_RANGE 1.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_KP
+/* 手动驾驶俯仰环增益(自动模式仍用 -40/-12 救启动瞬态)。
+ * 轮上摩擦极限 ~0.5Nm/轮: -40 在 2° 误差时就要求 1.4Nm/轮 -> 烧胎
+ * 空转、车体滑动漂移。手动用 -12/-4: 2° 时 0.42Nm/轮内, 轮子咬地
+ * 纯滚动, pitch 仍能收在 1° 左右。 */
+#define SIMPLE_MANUAL_PITCH_KP (-25.0f)
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_KD
+#define SIMPLE_MANUAL_PITCH_KD (-6.0f)
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_MAX
+/* 手动腿摆最大偏置，单位 m。复用位置环的腿摆限幅。 */
+#define SIMPLE_MANUAL_SWING_MAX SIMPLE_ORIGIN_LEG_MAX
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_DRIVE
+/* 手动 W/S 按住时的固定腿摆角，单位 m。
+ * 用户要求的驱动方式: 腿摆到一个固定角度, 质心相对轮轴后移/前移,
+ * 俯仰环输出轮扭矩让车前进/后退, pitch 目标恒为 0。
+ * 不用速度反馈(启动/摆腿时轮速被腿几何耦合污染, 会误判成高速
+ * 把腿摆打反)。巡航速度由俯仰环自带速度阻尼自然收敛。 */
+#define SIMPLE_MANUAL_SWING_DRIVE 0.015f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_STOP_KP
+/* 松手停车腿摆刹车增益，单位 m/(m/s)。
+ * 前进(v>0) -> 腿向后摆(sw<0) -> 质心前移 -> 俯仰环轮子反转刹停,
+ * pitch 保持 0, 不用倾角刹停。比速度环增益高一点, 停车更快。 */
+#define SIMPLE_MANUAL_SWING_STOP_KP 0.020f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_STOP_VMAX
+/* 松手刹车用的速度反馈限幅，单位 m/s。
+ * 腿摆/轮子几何耦合会让轮速瞬间读出 3m/s+ 的假速度, 直接乘增益会
+ * 把腿摆打满反方向翻车; 限幅后刹车腿摆最大也只有 ~0.032m。 */
+#define SIMPLE_MANUAL_SWING_STOP_VMAX 0.60f
+#endif
+
+#ifndef TURN_DRIFT_POS_KP
+/* A/D 原地差速转向的"原地保持"位置增益，单位 Nm/m。
+ * v3 闭链腿几何在 yaw 时会把轮轴反作用耦合进前向位移(实测转 90°
+ * 漂 4m+), 轮子差速扭矩本身刹不住这种滑动。转向期间用里程计+
+ * IMU 融合速度测真实前滑, 直接给共模轮扭矩把车钉在进入点原地转。 */
+#define TURN_DRIFT_POS_KP 0.40f
+#endif
+
+#ifndef TURN_DRIFT_V_KP
+/* A/D 原地转向"原地保持"速度增益，单位 Nm/(m/s)。 */
+#define TURN_DRIFT_V_KP 1.20f
+#endif
+
+#ifndef TURN_DRIFT_TAU_MAX
+/* A/D 原地转向刹车共模扭矩上限，单位 Nm。
+ * 必须小于轮上摩擦极限(实测 ~0.5Nm/轮 开始打滑), 否则刹滑扭矩
+ * 自己把轮子打滑放大漂移。先置 0 关闭(实测共模刹滑会把 yaw 方向
+ * 带反), 等 pitch 增益收住不打滑后再评估是否需要。 */
+#define TURN_DRIFT_TAU_MAX 0.0f
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_SPEED_GATE
@@ -160,8 +253,10 @@
 #endif
 
 #ifndef SIMPLE_MANUAL_STOP_V
-/* 松手停车完成判速，单位 m/s；低于该值后恢复自动保持。 */
-#define SIMPLE_MANUAL_STOP_V 0.06f
+/* 松手停车完成判速，单位 m/s；低于该值后恢复自动保持。
+ * 0.06 太严, 转向后轮速噪声读 0.1-0.3 一直卡在刹车状态, 摆腿
+ * 反复修正反而扰动 pitch。0.15 让低速快速交还自动位置保持。 */
+#define SIMPLE_MANUAL_STOP_V 0.15f
 #endif
 
 #ifndef SIMPLE_MANUAL_PITCH_GAIN

@@ -353,27 +353,49 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
                                 + LEG_V3_J_S1 * (float)s->lr_pos;
     float sw_r = LEG_V3_SW_NOM - LEG_V3_J_S0 * (float)s->rf_pos
                                 - LEG_V3_J_S1 * (float)s->rr_pos;
+    /* 腿摆参考直接取 balance 输出的 swing_ref(含手动 W/S 的腿摆指令)。
+     * A/D 纯转向时 swing_ref=SW_NOM -> 腿锁中位, 只差速转;
+     * W/S 时 swing_ref 随速度误差前后摆 -> 平衡环轮子驱动前进, pitch 恒 0。 */
     float sw_ref_l = swing_ref;
     float sw_ref_r = swing_ref;
-    if (balance_get_manual_active()) {
-        /* 手动驾驶: 腿摆目标强制锁中位(sw=SW_NOM), 满增益固定腿,
-         * 防止平衡扰动让腿大幅摆动(用户实测"按前后腿乱摆",
-         * lf 冲到 +1.5 接近限位)。前进/后退完全由轮子驱动。 */
-        sw_ref_l = LEG_V3_SW_NOM;
-        sw_ref_r = LEG_V3_SW_NOM;
-    }
     float e_sw_l = sw_l - sw_ref_l;
     float e_sw_r = sw_r - sw_ref_r;
-    if (fabsf(e_sw_l) > LEG_V3_SW_DEAD)
-        e_sw_l -= (e_sw_l > 0) ? LEG_V3_SW_DEAD : -LEG_V3_SW_DEAD;
+    /* 自动静止用软腿(大死区+弱刚度): 腿在死区内自由, 停在自然平衡点
+     * (sw≈+0.009), 静止稳定不漂移。手动驾驶用硬腿(小死区+强刚度+
+     * 左右各自阻尼): 腿锁位不晃动, 差模(剪刀)摆动也被阻尼。 */
+    /* 前进/后退(W/S)和松手刹车时腿锁位(防摆腿乱动);
+     * A/D 纯转向时腿恢复软模式: 闭链腿会吸收 yaw-pitch 耦合,
+     * 硬腿会把耦合全传给车身 -> pitch 扰动 -> 翻车(实测)。 */
+    int manual_leg_stiff = (balance_get_manual_active() &&
+                            fabsf(balance_get_manual_v()) >= 0.05f) ||
+                           balance_get_post_manual();
+    float sw_kp = manual_leg_stiff ? LEG_V3_SW_KP : 300.0f;
+    float sw_kd = manual_leg_stiff ? LEG_V3_SW_KD : 10.0f;
+    float sw_dead = manual_leg_stiff ? LEG_V3_SW_DEAD : 0.02f;
+    float sw_l_dot, sw_r_dot;
+    if (manual_leg_stiff) {
+        /* 左右腿各自的速度阻尼(不是平均速度): 差模(剪刀)摆动也被阻尼,
+         * 否则转向时轮子反作用力会把左右腿剪开, 高频晃动(用户实测)。 */
+        sw_l_dot = LEG_V3_J_S0 * (float)s->lf_vel
+                 + LEG_V3_J_S1 * (float)s->lr_vel;
+        sw_r_dot = -LEG_V3_J_S0 * (float)s->rf_vel
+                  - LEG_V3_J_S1 * (float)s->rr_vel;
+    } else {
+        sw_l_dot = sw_dot_dbg;
+        sw_r_dot = sw_dot_dbg;
+    }
+    float e_sw_l_dead = e_sw_l;
+    float e_sw_r_dead = e_sw_r;
+    if (fabsf(e_sw_l_dead) > sw_dead)
+        e_sw_l_dead -= (e_sw_l_dead > 0) ? sw_dead : -sw_dead;
     else
-        e_sw_l = 0.0f;
-    if (fabsf(e_sw_r) > LEG_V3_SW_DEAD)
-        e_sw_r -= (e_sw_r > 0) ? LEG_V3_SW_DEAD : -LEG_V3_SW_DEAD;
+        e_sw_l_dead = 0.0f;
+    if (fabsf(e_sw_r_dead) > sw_dead)
+        e_sw_r_dead -= (e_sw_r_dead > 0) ? sw_dead : -sw_dead;
     else
-        e_sw_r = 0.0f;
-    float tau_sw_l = -(LEG_V3_SW_KP * e_sw_l + LEG_V3_SW_KD * sw_dot_dbg);
-    float tau_sw_r = -(LEG_V3_SW_KP * e_sw_r + LEG_V3_SW_KD * sw_dot_dbg);
+        e_sw_r_dead = 0.0f;
+    float tau_sw_l = -(sw_kp * e_sw_l_dead + sw_kd * sw_l_dot);
+    float tau_sw_r = -(sw_kp * e_sw_r_dead + sw_kd * sw_r_dot);
     float tau_lf, tau_lr, tau_rf, tau_rr;
     leg_kin_v3_forces(tau_l, tau_sw_l, tau_r, tau_sw_r,
                       &tau_lf, &tau_lr, &tau_rf, &tau_rr);

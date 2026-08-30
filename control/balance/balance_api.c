@@ -51,9 +51,10 @@ void balance_set_manual(float speed_ref, float yaw_rate_ref, int active)
         g_balance.hold_pos = g_balance.pos;
         g_balance.yaw_zero = g_balance.yaw_raw_prev;
         g_balance.manual_neutral = 0.0f;
-        /* 前后行驶或转向后都进停车刹车: 转向差速会积累前进漂移
-         * (v3 轮腿车几何/打滑), 松手后必须刹停, 不能只靠 yaw 保持。 */
-        g_balance.post_manual = 1;
+        /* 只有 W/S 前后行驶后松手才进摆腿刹车(车有前进速度);
+         * A/D 纯转向本身不产生位移(原地差速), 松手直接交回自动
+         * 位置保持, 避免摆腿刹车在低速假速度下扰动 pitch 翻车。 */
+        g_balance.post_manual = (fabsf(g_balance.manual_v) >= 0.05f) ? 1 : 0;
         g_balance.post_manual_t = 0.0f;
     }
     g_balance.manual_v_target = speed_ref;

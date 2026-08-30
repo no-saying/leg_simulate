@@ -18,6 +18,11 @@
             g_balance.idle_calm_t = 0.0f;
         }
     }
+    /* 手动腿摆目标(单位 m): 在下方 leg_ref 段落统一消费。
+     * W/S 时 = K*(目标速度-实际速度) -> 腿摆前移驱动前进, pitch 恒 0;
+     * A/D 纯转向时 = 0 -> 腿锁中位, 只做轮子差速;
+     * 松手刹车时 = -K*v -> 反向摆腿刹停。 */
+    float manual_swing_target = 0.0f;
     if (g_balance.manual_active) {
         /* 指令斜坡化: 速度/转向指令按固定加速度爬升，避免起步瞬间猛冲。 */
         float dv_m = SIMPLE_MANUAL_ACCEL * dt_f;
@@ -57,28 +62,35 @@
          * 维持当前点)；手动弱限幅(0.09rad/1.5x)追不上漂移，实测 zero 指令
          * 下 3s 跑到 2.7m/s。 */
         if (fabsf(g_balance.manual_v) >= 0.05f) {
-            /* 手动速度控制: 速度误差 -> 目标俯仰(pitch 前倾 -> 轮扭矩前进)。
-             * v3 腿摆弱, 不能像旧模型那样只靠腿摆; 必须让平衡环输出
-             * 轮扭矩驱动。按 W(manual_v>0) 车慢于目标 -> 前倾(neutral 负?),
-             * 具体符号由 SIMPLE_MANUAL_PITCH_GAIN 标定。 */
-            float v_err_pb = g_balance.manual_v - g_balance.body_v_filt;
-            v_err_pb = clampf_local(v_err_pb, -2.0f, 2.0f);
-            /* v3 实测: neutral>0(后仰, tp 正)让车前进, neutral<0(前倾)
-             * 让车后退 —— 与旧模型符号相反, 见 2026-08-23 手动标定。
-             * W(manual_v>0, v_err>0) -> neutral 正 -> 前进; 反之后退。 */
-            neutral_pb = SIMPLE_BASE_NEUTRAL + SIMPLE_MANUAL_PITCH_GAIN * v_err_pb;
-            neutral_pb = clampf_local(neutral_pb,
-                                      -SIMPLE_MANUAL_PITCH_MAX,
-                                       SIMPLE_MANUAL_PITCH_MAX);
-            /* 启动 1s 内不覆盖 neutral: 保留 sensor 的 auto 位置环,
-             * 否则平衡建立瞬态没人拉回, 会甩成启动后退(实测退 4m)。
-             * leg_ref 也有 1s 门控, 见下方。 */
+            /* 手动速度控制: 腿摆角度驱动, 目标 pitch 恒为 0。
+             * 腿摆前移(sw>0) -> 质心相对轮轴后移 -> 俯仰环输出轮扭矩
+             * 推车前进, pitch 保持 0。按住期间腿摆固定 ±SWING_DRIVE,
+             * 不用速度反馈(启动/摆腿时轮速被腿几何耦合污染, 会把
+             * 腿摆打反翻车); 速度超过 SWING_SPEED_START 后摆腿按比例
+             * 回中软限速, 巡航 ~1.5-2m/s, 不依赖轮速阻尼。 */
+            neutral_pb = SIMPLE_BASE_NEUTRAL;
+            /* 软限速用 IMU 融合速度: 轮速会被摆腿动作几何耦合污染
+             * (读 +2m/s 假速度), 把 W/S 摆腿指令压成 0 导致不走。
+             * IMU 积分速度反映真实车速。 */
+            float v_swing_pb = clampf_local(g_balance.simple_imu_v,
+                                            -2.0f, 2.0f);
+            float swing_spd_scale = 1.0f -
+                (fabsf(v_swing_pb) - SIMPLE_MANUAL_SWING_SPEED_START) /
+                SIMPLE_MANUAL_SWING_SPEED_RANGE;
+            swing_spd_scale = clampf_local(swing_spd_scale, 0.0f, 1.0f);
+            manual_swing_target = (g_balance.manual_v > 0.0f)
+                                  ?  SIMPLE_MANUAL_SWING_DRIVE * swing_spd_scale
+                                  : -SIMPLE_MANUAL_SWING_DRIVE * swing_spd_scale;
+            manual_swing_target = clampf_local(manual_swing_target,
+                                               -SIMPLE_MANUAL_SWING_MAX,
+                                                SIMPLE_MANUAL_SWING_MAX);
         } else {
             /* A/D 纯转向(无前后指令): 差速会让 body_v 误读成前进/后退,
              * 位置/速度环若给 neutral 偏移会推车前进(实测 tp=-2.7°
-             * 边转边前冲)。转向时 neutral 固定 0, 只做差速。 */
+             * 边转边前冲)。转向时 neutral 固定 0, 腿摆锁中位, 只做差速。 */
             if (fabsf(g_balance.manual_yaw) >= 0.05f) {
                 neutral_pb = SIMPLE_BASE_NEUTRAL;
+                manual_swing_target = 0.0f;
             } else {
             /* 零指令保持: 速度刹向 0 + 位置保持在进入点(不追回启动原点)。 */
             float pos_err_m = g_balance.pos - g_balance.hold_pos;
@@ -121,40 +133,33 @@
             }
             }
         }
-        /* 目标俯仰变化率限幅: 只在 W/S 速度指令时启用(按键切换/方向反转
-         * 时 tp 慢慢建立，避免瞬间打满 ±10° 造成 pitch 甩动)。
-         * 零指令保持直接走 SIMPLE_NEUTRAL_TAU 滤波，刹车响应不能太慢。 */
-        if (fabsf(g_balance.manual_v) >= 0.05f) {
-            float slew_m = SIMPLE_MANUAL_NEUTRAL_SLEW * dt_f;
-            float d_m = neutral_pb - g_balance.manual_neutral;
-            d_m = clampf_local(d_m, -slew_m, slew_m);
-            g_balance.manual_neutral += d_m;
-            neutral_pb = g_balance.manual_neutral;
-        }
         /* 滚转安全网: 车身明显倾斜时自动撤手动指令，防止边缘状态下翻车。 */
         if (fabsf(roll) > 0.25f) {
             g_balance.manual_v = 0.0f;
             g_balance.manual_v_target = 0.0f;
             g_balance.manual_yaw = 0.0f;
             g_balance.manual_yaw_target = 0.0f;
+            manual_swing_target = 0.0f;
         }
         g_balance.origin_creep = 0.0f;
         g_balance.post_manual = 0;
         g_balance.post_manual_t = 0.0f;
     } else if (g_balance.post_manual) {
-        /* 松手停车刹车: 行驶中里程计失真，不能追位置；目标速度 0，
-         * bang-bang 强刹(小比例倾角会形成“后仰前栽”爬行平衡刹不停)。
-         * 速度低于阈值持续 0.3s 或超时 2s 后退出，交给自动保持。 */
+        /* 松手停车刹车: 反向摆腿刹停, pitch 目标保持 0。
+         * 前进(v>0) -> 腿向后摆(sw<0) -> 质心前移 -> 俯仰环轮子反转
+         * 刹停。不用倾角刹停, 车体姿态始终竖直, 不会"后仰前栽"。 */
         g_balance.post_manual_t += dt_f;
-        float v_err_stop = clampf_local(g_balance.body_v_filt, -2.0f, 2.0f);
-        /* v3 符号: neutral>0 前进, neutral<0 后退(2026-08-23 标定)。
-         * 松手刹车: 车正前进(body_v>0) 需要后退扭矩刹停, 但 v3 下
-         * 后退靠 neutral<0(前倾), 所以取 -v_err: body_v>0 -> neutral<0。 */
-        neutral_pb = SIMPLE_BASE_NEUTRAL -
-                     SIMPLE_MANUAL_STOP_KP * v_err_stop;
-        neutral_pb = clampf_local(neutral_pb,
-                                  -SIMPLE_MANUAL_STOP_MAX,
-                                   SIMPLE_MANUAL_STOP_MAX);
+        /* 用 IMU 融合速度(不是轮速): 摆腿动作本身会被轮速误读成
+         * 前进速度, 形成"刹车->假速度->更猛刹车"正反馈(实测转向后
+         * 松手刹车翻车)。IMU 积分速度不受腿几何耦合污染。 */
+        float v_err_stop = clampf_local(g_balance.simple_imu_v,
+                                        -SIMPLE_MANUAL_SWING_STOP_VMAX,
+                                         SIMPLE_MANUAL_SWING_STOP_VMAX);
+        neutral_pb = SIMPLE_BASE_NEUTRAL;
+        manual_swing_target = -SIMPLE_MANUAL_SWING_STOP_KP * v_err_stop;
+        manual_swing_target = clampf_local(manual_swing_target,
+                                           -SIMPLE_MANUAL_SWING_MAX,
+                                            SIMPLE_MANUAL_SWING_MAX);
         g_balance.origin_creep = 0.0f;
         if (fabsf(g_balance.body_v_filt) < SIMPLE_MANUAL_STOP_V &&
             g_balance.post_manual_t > 0.30f) {
@@ -235,7 +240,8 @@
     }
 #endif
     float leg_ref_pb = 0.0f;
-    if (g_balance.manual_active && g_balance.run_time > 1.0f) {
+    if ((g_balance.manual_active || g_balance.post_manual) &&
+        g_balance.run_time > 1.0f) {
         /* 手动加减速: 腿摆由速度误差驱动(摆腿移动重心 -> 轮子配合),
          * 车身 pitch 保持小角度。auto 位置环的腿摆在手动时关闭,
          * 否则会把前进的车往回拉(实测 sw 打满 -0.15 翻车)。
@@ -245,11 +251,12 @@
          * 车慢于目标(manual_v-v>0) -> 向前摆腿(sw>0);
          * 车快于目标(manual_v-v<0) -> 向后摆腿刹车(sw<0)。
          * auto 用 SIGN=-1, 手动速度环方向相反, 取 -SIGN。 */
-        /* 手动 W/S 腿摆保持中立: v3 轮腿车前进/后退由"目标 pitch 偏移
-         * -> 平衡环输出轮扭矩"驱动(见上方 neutral 计算), 腿摆同步摆动
-         * 反而产生左右差速让车打转(用户实测 yaw 漂 100°+)。 */
-        leg_ref_pb = 0.0f;
-        leg_ref_pb = clampf_local(leg_ref_pb, -SIMPLE_ORIGIN_LEG_MAX, SIMPLE_ORIGIN_LEG_MAX);
+        /* 手动 W/S: 腿摆角度就是执行器, pitch 保持 0(上方 neutral 已固定)。
+         * A/D 纯转向 / 零指令: manual_swing_target=0, 腿锁中位。
+         * 松手刹车: manual_swing_target = -K*v, 反向摆腿刹停。 */
+        leg_ref_pb = manual_swing_target;
+        leg_ref_pb = clampf_local(leg_ref_pb, -SIMPLE_MANUAL_SWING_MAX,
+                                  SIMPLE_MANUAL_SWING_MAX);
         g_balance.leg_pos_i = 0.0f;   /* 手动时清掉 auto 位置积分 */
     }
 #if SIMPLE_AUTO_SWING_ENABLE
@@ -298,7 +305,10 @@
      * (1ms 步长) = 6 m/s 的摆腿速度, 满幅 0.03m 只需 5ms, 视觉上
      * 就是"一抽一抽"(用户实测)。改为 0.0003/步 = 0.3 m/s, 满幅
      * 约 100ms 平滑到位, 既能跟上加减速又不抽搐。 */
+    /* 摆腿变化率限幅: 手动时 0.06 m/s。 */
     float leg_step_pb = 0.0003f;
+    if (g_balance.manual_active || g_balance.post_manual)
+        leg_step_pb = 0.00006f;
     g_balance.leg_swing += clampf_local(leg_ref_pb - g_balance.leg_swing, -leg_step_pb, leg_step_pb);
     float ext_step_pb = 0.00045f;
     float ext_ref_pb = ext_damp_ref;
