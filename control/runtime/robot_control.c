@@ -340,7 +340,8 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
     leg_kin_v3_velocities((float)s->lf_vel, (float)s->lr_vel,
                           (float)s->rf_vel, (float)s->rr_vel,
                           &sw_dot_dbg, &l_dot, &r_dot);
-    /* 腿长目标用中位(重心在轮轴正上方), 而非名义装配位 */
+    /* 腿长目标用中位(重心在轮轴正上方), 而非名义装配位。
+     * 腿长伺服保持满刚度支撑(弱化会让腿塌陷, 实测 L 掉到 0.09)。 */
     float tau_l = -(LEG_V3_SERVO_KP * (leg_l - LEG_V3_L_MID)
                     + LEG_V3_SERVO_KD * l_dot);
     float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_MID)
@@ -354,6 +355,13 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
                                 - LEG_V3_J_S1 * (float)s->rr_pos;
     float sw_ref_l = swing_ref;
     float sw_ref_r = swing_ref;
+    if (balance_get_manual_active()) {
+        /* 手动驾驶: 腿摆目标强制锁中位(sw=SW_NOM), 满增益固定腿,
+         * 防止平衡扰动让腿大幅摆动(用户实测"按前后腿乱摆",
+         * lf 冲到 +1.5 接近限位)。前进/后退完全由轮子驱动。 */
+        sw_ref_l = LEG_V3_SW_NOM;
+        sw_ref_r = LEG_V3_SW_NOM;
+    }
     float e_sw_l = sw_l - sw_ref_l;
     float e_sw_r = sw_r - sw_ref_r;
     if (fabsf(e_sw_l) > LEG_V3_SW_DEAD)
