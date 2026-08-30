@@ -253,7 +253,7 @@
  */
 #ifndef ROLL_STAB_KP
 #if MODEL_V3
-#define ROLL_STAB_KP 0.0f      /* 分开验证: 先只开 yaw */
+#define ROLL_STAB_KP 8.0f      /* v3: 差动腿找平 roll, 抑制转向时车体左右晃 */
 #else
 #define ROLL_STAB_KP 8.0f
 #endif
