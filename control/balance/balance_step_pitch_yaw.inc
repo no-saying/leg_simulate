@@ -52,6 +52,12 @@
         /* 手动时保留 60% 速度阻尼: 腿摆管加减速, 轮子仍要能刹住
          * 启动/超速动量(0.3 太弱, 启动振荡 -2.4m/s 刹不住)。 */
         vel_damp_pb *= 0.60f;
+    if (g_balance.manual_active && fabsf(g_balance.manual_yaw) >= 0.05f &&
+        fabsf(g_balance.manual_v) < 0.05f)
+        /* A/D 纯转向: body_v 是差速伪影(轮子差速被误读成前进),
+         * 速度阻尼会输出共模刹停扭矩, 与转向竞争造成前进漂移
+         * (实测 pitchMix -8Nm, bx 漂移 2m+)。转向时完全关闭速度阻尼。 */
+        vel_damp_pb = 0.0f;
     float tau_cmd_pb = kp_pb * p_err_pb + kd_pb * g_balance.pitch_rate_filt
                      - vel_damp_pb * v_damp_pb
                      - park_scale_pb * SIMPLE_PARK_VEL_DAMP * park_v_pb
@@ -210,8 +216,8 @@
         float yaw_rate_ref_pb;
         if (g_balance.manual_active && fabsf(g_balance.manual_yaw) >= 0.05f) {
             /* A/D 直接给偏航角速度(已斜坡化)，yaw 位置环让位。
-             * 误差公式 yaw_rate + ref，稳态 yaw_rate = -ref，
-             * 所以 ref 取反才是“按 manual_yaw 的方向转”。 */
+             * v3 标定(2026-08-24): r/D(manual_yaw<0) 应右转(yaw 负),
+             * 差速 -yaw 直接驱动, 不再取反(旧模型符号不同)。 */
             yaw_rate_ref_pb = -g_balance.manual_yaw;
         } else {
             /* 手动 W/S 前进(无 A/D 转向)或静止: 保持位置纠偏,
@@ -232,7 +238,19 @@
                              : SIMPLE_YAW_RATE_MAX;
         yaw_rate_ref_pb = clampf_local(yaw_rate_ref_pb,
                                        -yaw_ref_max_pb, yaw_ref_max_pb);
-        float yaw_rate_err_pb = yaw_rate + yaw_rate_ref_pb;
+        /* yaw_rate 一阶低通: 差速陀螺高频振荡会让 yaw_held 在 ±限幅
+         * 之间来回跳, 轮子交替反向 -> 车不转向只抖动(实测 yawMix
+         * ±1.6Nm 振荡)。8ms 时间常数压掉高频, 保留转向响应。 */
+        float yaw_rate_alpha = yaw_dt_pb / (0.008f + yaw_dt_pb);
+        yaw_rate_alpha = clampf_local(yaw_rate_alpha, 0.0f, 1.0f);
+        g_balance.yaw_rate_filt += yaw_rate_alpha * (yaw_rate - g_balance.yaw_rate_filt);
+        /* 手动 A/D 转向: yaw_rate 误差环, 实际转速收敛到 manual_yaw。
+         * v3 标定(2026-08-24): manual_yaw>0(左转A) 应 yaw 正,
+         * 误差 = yaw_rate - manual_yaw, 用 +SIGN 方向修正。 */
+        float yaw_rate_err_pb = (g_balance.manual_active &&
+                                 fabsf(g_balance.manual_yaw) >= 0.05f)
+                              ? g_balance.yaw_rate_filt - g_balance.manual_yaw
+                              : g_balance.yaw_rate_filt + yaw_rate_ref_pb;
         float yaw_rate_kp_pb = g_balance.manual_active
                              ? SIMPLE_MANUAL_YAW_RATE_KP
                              : SIMPLE_YAW_RATE_KP;

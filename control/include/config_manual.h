@@ -44,7 +44,7 @@
 /* 手动转向差动扭矩上限，单位 Nm。俯仰保持的共模扭矩会占掉大部分轮上
  * 力矩余量，2.5 推不动原地转(实测只有 ~3°/s)；12 只到 72°/s，
  * 24 到 149°/s, 32 让 3.0rad/s 的小陀螺目标基本达到。 */
-#define SIMPLE_MANUAL_YAW_MAX 8.0f   /* v3: 摩擦1.0, 32Nm差速会掀翻/前冲 */
+#define SIMPLE_MANUAL_YAW_MAX 4.0f   /* v3: 摩擦1.0, 大差速反作用前倾 */
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE_KP
@@ -180,7 +180,7 @@
 #ifndef SIMPLE_MANUAL_PITCH_GATE
 /* 手动行驶前倾角门控，单位 rad；实测俯仰超过该值时自动撤掉驱动指令，
  * 让车先回正。限制的是姿态而不是速度。 */
-#define SIMPLE_MANUAL_PITCH_GATE 0.500f
+#define SIMPLE_MANUAL_PITCH_GATE 0.150f   /* v3: 前倾超过8.6°撤手动指令回正 */
 #endif
 
 #ifndef SIMPLE_MANUAL_NEUTRAL_SLEW

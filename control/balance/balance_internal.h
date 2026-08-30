@@ -158,6 +158,7 @@ typedef struct {
     float yaw_cont;               /* rad，连续解包络后的偏航位移。 */
     float yaw_err_dbg;            /* rad，导出到日志的偏航误差。 */
     float yaw_i;                  /* rad*s，带限幅的偏航积分项。 */
+    float yaw_rate_filt;          /* rad/s，偏航角速度一阶低通(防差速振荡) */
     int yaw_ready;                /* 布尔值，偏航参考是否已初始化。 */
 
     float run_time;               /* s，平衡模式开启后的运行时间。 */

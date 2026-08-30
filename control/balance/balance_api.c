@@ -51,12 +51,17 @@ void balance_set_manual(float speed_ref, float yaw_rate_ref, int active)
         g_balance.hold_pos = g_balance.pos;
         g_balance.yaw_zero = g_balance.yaw_raw_prev;
         g_balance.manual_neutral = 0.0f;
-        /* 只有前后行驶后进停车刹车; 纯转向松手直接由 yaw 环保持航向。 */
-        g_balance.post_manual = (fabsf(g_balance.manual_v) > 0.05f) ? 1 : 0;
+        /* 前后行驶或转向后都进停车刹车: 转向差速会积累前进漂移
+         * (v3 轮腿车几何/打滑), 松手后必须刹停, 不能只靠 yaw 保持。 */
+        g_balance.post_manual = 1;
         g_balance.post_manual_t = 0.0f;
     }
     g_balance.manual_v_target = speed_ref;
     g_balance.manual_yaw_target = yaw_rate_ref;
+    /* 手动激活瞬间(从 auto 切入): 目标俯仰从 0 开始斜坡, 避免
+     * neutral 瞬间跳变导致 pitch 甩动/趴地(GUI 实测按 W 即翻)。 */
+    if (want_active && !g_balance.manual_active)
+        g_balance.manual_neutral = 0.0f;
     g_balance.manual_active = want_active;
     if (!g_balance.manual_active) {
         g_balance.manual_v = 0.0f;
