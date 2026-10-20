@@ -1,0 +1,109 @@
+{
+  "schema_version": 1,
+  "project_name": "zzu_legged_cat",
+  "exported_at_utc": "2026-10-20T13:47:03.824Z",
+  "source": {
+    "repository": "https://github.com/no-saying/leg_simulate",
+    "base_commit": "584a11b4f4f1b7922e5a72d646aa550117e30caf",
+    "includes_working_tree_changes": true,
+    "extraction": "Independent copy; original workspace retained; no parent source dependencies."
+  },
+  "model": {
+    "path": "model/v3/COD-2026RoboMaster-Balance-v3.xml",
+    "sha256": "76683afe6f98d41485344d094711998f5ef65157a97d669086e7ee5159b7c7ca",
+    "asset_count": 15,
+    "assets": [
+      {
+        "path": "model/v3/meshes/part_001_body.stl",
+        "sha256": "b0f2db051bebf1fd7752904b9dc9b63795f79c5157a125eb667c2454364e5084"
+      },
+      {
+        "path": "model/v3/meshes/part_002_claf_link0_1.stl",
+        "sha256": "db6499bc88733b5dee1a32935c8feb4430b01123509bf4723cc553423dad584c"
+      },
+      {
+        "path": "model/v3/meshes/part_003_claf_link1_2.stl",
+        "sha256": "9e74fa6bb4cf1b3935061643fd38e64be92902b9d0b9348b0a651e64f65ab5fd"
+      },
+      {
+        "path": "model/v3/meshes/part_004_claf_link2_3.stl",
+        "sha256": "935ef3e32065da7bf073a160c0ba9640934898cb3739b4a386b723e00f6b0519"
+      },
+      {
+        "path": "model/v3/meshes/part_005_claf_link3_4.stl",
+        "sha256": "ef26c8afd3445136782923e2db921c260a42222e4b08233049cc92457050b9fb"
+      },
+      {
+        "path": "model/v3/meshes/part_006_claf_link4_5.stl",
+        "sha256": "7c181f4786f57c49b7816dfdc6d4c28ac3c2c238c0d0ecf71f2d3fe621b82c37"
+      },
+      {
+        "path": "model/v3/meshes/part_007_thigh_link0_1.stl",
+        "sha256": "e95a86a350de596571606228498f009ea04d47d7d11608be9bf70379a61979d2"
+      },
+      {
+        "path": "model/v3/meshes/part_008_v3.stl",
+        "sha256": "6b38b97178354b78ba00c226e7a2c13ff521cbd35c44ea1ff51ddd31acbb7756"
+      },
+      {
+        "path": "model/v3/meshes/part_009_v3.stl",
+        "sha256": "8338b4deecd01a4ddf4800855d9ab96042227730af312814d620d8cfdf679745"
+      },
+      {
+        "path": "model/v3/meshes/part_010_claf_link4_5.stl",
+        "sha256": "802bca5e3c5079b96cd80ce7455afa9719f63dc3df37316a63f4b99e27d4a904"
+      },
+      {
+        "path": "model/v3/meshes/part_011_claf_link3_4.stl",
+        "sha256": "7d0453ebf447998ea28c49e460f2ce722af7b3e0c450871a0b1edeac60b7099f"
+      },
+      {
+        "path": "model/v3/meshes/part_012_claf_link2_3.stl",
+        "sha256": "69993b7525328ecb33840da18973a72c58616046123fa0caae5a89686f6cdde7"
+      },
+      {
+        "path": "model/v3/meshes/part_013_claf_link1_2.stl",
+        "sha256": "830720e83dc7415a73ab953cf173e0071819a0fe85eca4a4f629b40e78072c5a"
+      },
+      {
+        "path": "model/v3/meshes/part_014_claf_link0_1.stl",
+        "sha256": "b6fffbb4a9c12e547d93fc20779349895f4cbb62e400b43beff02bc1cf1fb8dc"
+      },
+      {
+        "path": "model/v3/meshes/part_015_thigh_link0_1_right.stl",
+        "sha256": "f109c9cc3ba5ddd42347e355af136daf02e771a1d422fe8577127cb07cda01e1"
+      }
+    ]
+  },
+  "configuration": [
+    {
+      "path": "config/rl_joint_pd.json",
+      "sha256": "e77774d3a6d9704c598ccecb4f9880ed5c5e6b2a76b67319f9b1d90be8cd4688"
+    },
+    {
+      "path": "config/v3_robot_calibration.json",
+      "sha256": "a395029a8dcbf17942693cdc01f3b0d4e9d06188fa9eb84eb180a23a26626b7c"
+    }
+  ],
+  "python_import_package": "wheel_legged",
+  "python_distribution_name": "zzu-legged-cat",
+  "retained_compatibility_dependencies": [
+    "scripts/jump_rl_env.py",
+    "control/controllers/rl_jump/",
+    "control/balance/balance_step_legacy*.inc"
+  ],
+  "export_adaptations": [
+    "Project documentation and package name",
+    "Standalone launcher and log directory creation",
+    "Self-contained temporary checkpoint fixtures for three migration tests",
+    "Removed duplicated vel_kf.c entry from portable build sources"
+  ],
+  "excluded": [
+    "Old model XML and meshes",
+    "Historical ZIP/PT policy artifacts",
+    "Raw training and telemetry logs",
+    "Prebuilt shared libraries and executables",
+    "Virtual environments and caches",
+    ".git history"
+  ]
+}

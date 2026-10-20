@@ -1,0 +1,5 @@
+mjbatch==0.1.4
+mujoco==3.14.0
+stable-baselines3==2.9.0
+numpy>=1.26,<3
+opencv-python-headless>=4.10,<6

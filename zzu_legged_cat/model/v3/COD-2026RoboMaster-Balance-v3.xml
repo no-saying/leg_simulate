@@ -1,0 +1,491 @@
+<?xml version='1.0' encoding='utf-8'?>
+<mujoco model="generated_robot">
+  <compiler angle="radian" eulerseq="xyz" autolimits="true" balanceinertia="true" boundinertia="1e-8" />
+  <option timestep="0.001" gravity="0 0 -9.81" />
+  <visual>
+    <global realtime="1" />
+    <quality shadowsize="4096" offsamples="2" />
+    <headlight ambient="0.4 0.4 0.4" diffuse="0.6 0.6 0.6" active="1" />
+  </visual>
+  <default>
+    <geom contype="1" conaffinity="1" material="alu" />
+    <default class="test_ball">
+      <geom type="sphere" size="0.0085" mass="0.0027" material="" rgba="0.9 0.22 0.12 1" friction="0.6 0.005 0.0001" condim="6" />
+    </default>
+    <default class="large_test_ball">
+      <geom type="sphere" size="0.021" mass="0.043" material="" rgba="0.12 0.65 0.85 1" friction="0.6 0.005 0.0001" condim="6" />
+    </default>
+  </default>
+  <asset>
+    <material name="plastic" rgba="0.35 0.35 0.38 1" specular="0.3" reflectance="0.1" shininess="0.3" />
+    <material name="rubber" rgba="0.15 0.15 0.15 1" specular="0.1" reflectance="0.05" shininess="0.1" />
+    <material name="alu" specular="0.75" reflectance="0.4" shininess="0.5" />
+    <material name="plane_mat" texture="plane" reflectance="0.2" />
+    <texture name="plane" type="2d" builtin="checker" rgb1="0.1 0.1 0.1" rgb2="0.9 0.9 0.9" width="2048" height="2048" mark="cross" markrgb="0 0 0" />
+    <mesh name="part_001_body" file="meshes/part_001_body.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_014_claf_link0_1" file="meshes/part_014_claf_link0_1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_013_claf_link1_2" file="meshes/part_013_claf_link1_2.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_012_claf_link2_3" file="meshes/part_012_claf_link2_3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_011_claf_link3_4" file="meshes/part_011_claf_link3_4.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_015_thigh_link0_1_right" file="meshes/part_015_thigh_link0_1_right.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_010_claf_link4_5" file="meshes/part_010_claf_link4_5.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_009_v3" file="meshes/part_009_v3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_002_claf_link0_1" file="meshes/part_002_claf_link0_1.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_003_claf_link1_2" file="meshes/part_003_claf_link1_2.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_004_claf_link2_3" file="meshes/part_004_claf_link2_3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_005_claf_link3_4" file="meshes/part_005_claf_link3_4.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_006_claf_link4_5" file="meshes/part_006_claf_link4_5.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_008_v3" file="meshes/part_008_v3.stl" scale="0.001 0.001 0.001" />
+    <mesh name="part_007_thigh_link0_1" file="meshes/part_007_thigh_link0_1.stl" scale="0.001 0.001 0.001" />
+  </asset>
+  <worldbody>
+    <geom name="floor" type="plane" size="10 10 0.05" pos="0 0 -0.152" material="plane_mat" />
+    <body name="base_link" pos="0 0 0">
+        <freejoint /><site name="imu" pos="0 0 0.02" size="0.005" />
+        <inertial pos="0.008521883 -0.001231235 0.000030660" mass="1.4329276" quat="0.99974325 0.0001156263 0.0016052022 0.022601751" diaginertia="0.004215494 0.0089082894 0.0064478305" />
+        <geom name="base_link_mesh_1" type="mesh" mesh="part_001_body" pos="-0.017706299 -0.0472627 -0.000125" euler="0 0 0" group="1" />
+        <body name="Left_front_link" pos="-0.017706299 0.01959563 0.097375">
+          <joint name="Left_front_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-60 60" actuatorfrclimited="true" />
+          <inertial pos="0.008521883 -0.000703306 -0.000763069" mass="0.030158732" quat="0.94195817 0.039202855 -0.31169863 0.11841411" diaginertia="1.0259316e-05 1.1798812e-05 6.1812957e-06" />
+          <geom name="L_claf_link_0_mesh_1" type="mesh" mesh="part_014_claf_link0_1" pos="0 -0.06685833 -0.0975" euler="0 0 0" group="1" />
+          <body name="L_claf_link_1" pos="-0.048445063 -0.012372382 0.0247">
+            <joint name="L_claf_link_1_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+            <inertial pos="0.008521883 -0.017426463 0.004156135" mass="0.003949642" quat="0.9448177 0.058280593 -0.019847502 -0.32175917" diaginertia="6.8687493e-08 2.353799e-06 2.3950375e-06" />
+            <geom name="L_claf_link_1_mesh_1" type="mesh" mesh="part_013_claf_link1_2" pos="0.048445063 -0.054485948 -0.1222" euler="0 0 0" group="1" />
+            <body name="L_claf_link_2" pos="0.047531124 -0.03661683 0">
+              <joint name="L_claf_link_2_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+              <inertial pos="0.008521883 0.030506765 -0.002726346" mass="0.0063747796" quat="0.92995212 0.00088924654 0.00052804076 0.36767918" diaginertia="3.9645394e-07 5.7073099e-06 6.0769019e-06" />
+              <site name="closure_001_a_site" type="sphere" pos="0.048863816 0.034818493 -0.00875" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+              <geom name="L_claf_link_2_mesh_1" type="mesh" mesh="part_012_claf_link2_3" pos="0.00091393913 -0.017869118 -0.1222" euler="0 0 0" group="1" />
+              <body name="L_Claf_link_3" pos="0.066113407 0.065272583 -0.0052" euler="3.1415927 0 0">
+                <joint name="L_Claf_link_3_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                <inertial pos="0.008521883 0.006983301 0.004362163" mass="0.0039705665" quat="0.98901481 -0.060485917 -0.0083863243 0.13461366" diaginertia="6.8905956e-08 2.3727339e-06 2.4140886e-06" />
+                <geom name="L_Claf_link_3_mesh_1" type="mesh" mesh="part_011_claf_link3_4" pos="-0.065199468 0.083141702 0.117" euler="-3.1415927 0 0" group="1" />
+                <body name="L_Claf_link_4" pos="0.057822699 0.016016726 0.0002">
+                  <joint name="L_Claf_link_4_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                  <inertial pos="0.008521883 0.072148680 -0.002707500" mass="0.022393167" quat="0.9469092 -3.1768962e-05 9.620736e-05 -0.32150109" diaginertia="4.8639531e-06 7.4194387e-05 7.8964728e-05" />
+                  <site name="closure_002_a_site" type="sphere" pos="-0.017532437 0.031442228 -0.00215" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+                  <geom name="L_Claf_link_4_mesh_1" type="mesh" mesh="part_010_claf_link4_5" pos="-0.12302217 0.067124976 0.1168" euler="-3.1415927 0 0" group="1" />
+                  <body name="Left_Wheel_link" pos="-0.12127588 0.10641754 -0.0027" euler="-3.1415927 0 0">
+                    <joint name="Left_Wheel_joint" type="hinge" pos="0 0 0" axis="0 0 1" armature="0.0001" damping="0.05" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                    <inertial pos="0.008521883 -0.000235688 0.015289824" mass="0.4" quat="0.9918946 0.0018174106 -0.0011712305 -0.12704497" diaginertia="0.00022041704 0.00022188682 0.00031274034" />
+                    <geom name="L_Wheel_mesh_1" type="mesh" mesh="part_009_v3" pos="-0.0017462873 0.039292568 -0.1195" euler="0 0 0" group="1" />
+                    </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="Left_rear_link" pos="-0.017706299 0.01959563 0.097375">
+          <joint name="Left_rear_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-60 60" actuatorfrclimited="true" />
+          <inertial pos="0.008521883 -0.006297783 0.009994429" mass="0.0296825" quat="0.99173504 0.00075535441 -0.032349465 -0.12415537" diaginertia="5.5994086e-06 4.6648811e-05 5.0801497e-05" />
+          <site name="closure_001_b_site" type="sphere" pos="0.047949877 -0.014170719 0.01595" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <site name="closure_002_b_site" type="sphere" pos="0.10548973 -0.031175581 0.02145" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <geom name="L_Thigh_mesh_1" type="mesh" mesh="part_015_thigh_link0_1_right" pos="0 -0.06685833 -0.0975" euler="0 0 0" group="1" />
+        </body>
+        <body name="Right_front_link" pos="-0.017706299 0.01959563 -0.097625" euler="3.1415927 0 0">
+          <joint name="Right_front_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-60 60" actuatorfrclimited="true" />
+          <inertial pos="0.008521883 0.000705487 -0.000763069" mass="0.030158732" quat="0.94196577 -0.039145429 -0.31170584 -0.1183537" diaginertia="1.0259316e-05 1.1798812e-05 6.1812957e-06" />
+          <geom name="R_Claf_link_0_mesh_1" type="mesh" mesh="part_002_claf_link0_1" pos="0 0.06685833 -0.0975" euler="-3.1415927 0 0" group="1" />
+          <body name="R_Claf_link_1" pos="-0.048445063 0.012372382 0.0245" euler="-3.1415927 0 0">
+            <joint name="R_Claf_link_1_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+            <inertial pos="0.008521883 -0.019190381 -0.004356135" mass="0.0039496417" quat="0.94483414 0.058281576 -0.019844604 -0.3217109" diaginertia="6.8687486e-08 2.3537989e-06 2.3950374e-06" />
+            <geom name="R_Claf_link_1_mesh_1" type="mesh" mesh="part_003_claf_link1_2" pos="0.048445063 -0.054485948 0.122" euler="0 0 0" group="1" />
+            <body name="R_Claf_link_2" pos="0.047531124 -0.03661683 -0.004">
+              <joint name="R_Claf_link_2_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+              <inertial pos="0.008521883 0.030506765 0.006473653" mass="0.0063747796" quat="0.92995212 0.00088924654 0.00052804076 0.36767918" diaginertia="3.9645394e-07 5.7073099e-06 6.0769019e-06" />
+              <site name="closure_003_a_site" type="sphere" pos="0.048863816 0.034818493 0.012" quat="1 0 -0 0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+              <geom name="R_Claf_link_2_mesh_1" type="mesh" mesh="part_004_claf_link2_3" pos="0.00091393913 -0.017869118 0.126" euler="0 0 0" group="1" />
+              <body name="R_Claf_link_3" pos="0.066113407 0.065272583 0.004" euler="3.1415927 0 0">
+                <joint name="R_Claf_link_3_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                <inertial pos="0.008521883 0.006898886 -0.009362163" mass="0.0039705666" quat="0.98905959 0.060529633 0.0080644346 0.13428422" diaginertia="6.8905955e-08 2.3727339e-06 2.4140887e-06" />
+                <geom name="R_Claf_link_3_mesh_1" type="mesh" mesh="part_005_claf_link3_4" pos="-0.065199468 0.083141702 -0.122" euler="-3.1415927 0 0" group="1" />
+                <body name="R_Claf_link_4" pos="0.057822699 0.016016726 -0.005">
+                  <joint name="R_Claf_link_4_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                  <inertial pos="0.008521883 0.072148680 0.002492500" mass="0.022393167" quat="0.9469092 -3.1768963e-05 9.620736e-05 -0.32150109" diaginertia="4.8639531e-06 7.4194387e-05 7.8964728e-05" />
+                  <site name="closure_004_a_site" type="sphere" pos="-0.017532437 0.031442228 0.00055" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+                  <geom name="R_Claf_link_4_mesh_1" type="mesh" mesh="part_006_claf_link4_5" pos="-0.12302217 0.067124976 -0.117" euler="-3.1415927 0 0" group="1" />
+                  <body name="Right_Wheel_link" pos="-0.121275880 0.106417540 0.015875000" euler="-3.1415927 0 0">
+                    <joint name="Right_Wheel_joint" type="hinge" pos="0 0 0" axis="0 0 1" armature="0.0001" damping="0.05" actuatorfrcrange="-10 10" actuatorfrclimited="true" />
+                    <inertial pos="0.008521883 -0.000235699 -0.001914823" mass="0.4" quat="0.99240033 -0.0017916093 -0.0010150012 0.12303395" diaginertia="0.0002204239 0.00022187631 0.00031273634" />
+                    <geom name="R_Wheel_mesh_1" type="mesh" mesh="part_008_v3" pos="-0.0017462873 0.039292568 0.132875" euler="0 0 0" group="1" />
+                    </body>
+                </body>
+              </body>
+            </body>
+          </body>
+        </body>
+        <body name="Right_rear_link" pos="-0.017706299 0.01959563 -0.108625" euler="3.1415927 0 0">
+          <joint name="Right_rear_joint" type="hinge" pos="0 0 0" axis="0 0 1" range="-1.57 1.57" limited="true" damping="0.05" armature="0.0001" actuatorfrcrange="-60 60" actuatorfrclimited="true" />
+          <inertial pos="0.008521883 0.006296770 -0.001011558" mass="0.0296825" quat="0.99175305 -0.001049931 -0.03184017 0.12414098" diaginertia="5.5997061e-06 4.6648368e-05 5.0800749e-05" />
+          <site name="closure_003_b_site" type="sphere" pos="0.047949877 0.014170719 0.0055" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <site name="closure_004_b_site" type="sphere" pos="0.10548973 0.031175581 0.00905" quat="6.123234e-17 -1 -0 -0" size="0.003" rgba="0.2 0.8 1 0" group="3" />
+          <geom name="R_Thigh_mesh_1" type="mesh" mesh="part_007_thigh_link0_1" pos="0 0.06685833 -0.1085" euler="-3.1415927 0 0" group="1" />
+        </body>
+      </body>
+      <!-- 60 randomly scattered rolling balls, diameter 17 mm; clear starting area. -->
+      <body name="test_ball_01" pos="0.838 -0.542 -0.1435">
+        <freejoint /><geom name="test_ball_01_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_02" pos="1.315 -0.767 -0.1435">
+        <freejoint /><geom name="test_ball_02_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_03" pos="-0.168 0.308 -0.1435">
+        <freejoint /><geom name="test_ball_03_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_04" pos="-0.417 0.798 -0.1435">
+        <freejoint /><geom name="test_ball_04_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_05" pos="0.625 0.588 -0.1435">
+        <freejoint /><geom name="test_ball_05_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_06" pos="-1.495 -0.994 -0.1435">
+        <freejoint /><geom name="test_ball_06_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_07" pos="1.37 0.077 -0.1435">
+        <freejoint /><geom name="test_ball_07_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_08" pos="0.126 0.603 -0.1435">
+        <freejoint /><geom name="test_ball_08_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_09" pos="0.432 -0.613 -0.1435">
+        <freejoint /><geom name="test_ball_09_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_10" pos="-0.364 0.617 -0.1435">
+        <freejoint /><geom name="test_ball_10_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_11" pos="-0.899 0.664 -0.1435">
+        <freejoint /><geom name="test_ball_11_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_12" pos="1.152 -0.197 -0.1435">
+        <freejoint /><geom name="test_ball_12_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_13" pos="1.206 -0.785 -0.1435">
+        <freejoint /><geom name="test_ball_13_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_14" pos="-1.055 -0.476 -0.1435">
+        <freejoint /><geom name="test_ball_14_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_15" pos="-0.381 -0.622 -0.1435">
+        <freejoint /><geom name="test_ball_15_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_16" pos="1.096 0.182 -0.1435">
+        <freejoint /><geom name="test_ball_16_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_17" pos="-0.059 -0.443 -0.1435">
+        <freejoint /><geom name="test_ball_17_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_18" pos="-0.608 -0.51 -0.1435">
+        <freejoint /><geom name="test_ball_18_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_19" pos="1.084 -0.784 -0.1435">
+        <freejoint /><geom name="test_ball_19_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_20" pos="-0.684 -0.467 -0.1435">
+        <freejoint /><geom name="test_ball_20_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_21" pos="0.98 -0.148 -0.1435">
+        <freejoint /><geom name="test_ball_21_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_22" pos="-0.445 -0.732 -0.1435">
+        <freejoint /><geom name="test_ball_22_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_23" pos="0.937 -0.037 -0.1435">
+        <freejoint /><geom name="test_ball_23_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_24" pos="1.08 -0.112 -0.1435">
+        <freejoint /><geom name="test_ball_24_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_25" pos="0.605 -0.406 -0.1435">
+        <freejoint /><geom name="test_ball_25_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_26" pos="0.382 -0.105 -0.1435">
+        <freejoint /><geom name="test_ball_26_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_27" pos="0.842 0.352 -0.1435">
+        <freejoint /><geom name="test_ball_27_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_28" pos="1.039 0.045 -0.1435">
+        <freejoint /><geom name="test_ball_28_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_29" pos="-0.475 -0.682 -0.1435">
+        <freejoint /><geom name="test_ball_29_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_30" pos="0.539 0.816 -0.1435">
+        <freejoint /><geom name="test_ball_30_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_31" pos="-0.889 -0.258 -0.1435">
+        <freejoint /><geom name="test_ball_31_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_32" pos="0.025 -0.437 -0.1435">
+        <freejoint /><geom name="test_ball_32_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_33" pos="0.488 -0.066 -0.1435">
+        <freejoint /><geom name="test_ball_33_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_34" pos="1.385 -0.998 -0.1435">
+        <freejoint /><geom name="test_ball_34_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_35" pos="0.412 0.266 -0.1435">
+        <freejoint /><geom name="test_ball_35_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_36" pos="-1.131 -0.806 -0.1435">
+        <freejoint /><geom name="test_ball_36_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_37" pos="-1.413 0.68 -0.1435">
+        <freejoint /><geom name="test_ball_37_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_38" pos="0.167 -0.396 -0.1435">
+        <freejoint /><geom name="test_ball_38_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_39" pos="1.41 0.925 -0.1435">
+        <freejoint /><geom name="test_ball_39_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_40" pos="0.248 -0.292 -0.1435">
+        <freejoint /><geom name="test_ball_40_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_41" pos="1.202 0.71 -0.1435">
+        <freejoint /><geom name="test_ball_41_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_42" pos="0.632 0.371 -0.1435">
+        <freejoint /><geom name="test_ball_42_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_43" pos="-0.314 -0.336 -0.1435">
+        <freejoint /><geom name="test_ball_43_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_44" pos="-1.091 -0.709 -0.1435">
+        <freejoint /><geom name="test_ball_44_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_45" pos="0.749 0.556 -0.1435">
+        <freejoint /><geom name="test_ball_45_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_46" pos="-1.328 0.14 -0.1435">
+        <freejoint /><geom name="test_ball_46_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_47" pos="1.315 0.53 -0.1435">
+        <freejoint /><geom name="test_ball_47_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_48" pos="0.384 -0.347 -0.1435">
+        <freejoint /><geom name="test_ball_48_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_49" pos="1.401 -0.086 -0.1435">
+        <freejoint /><geom name="test_ball_49_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_50" pos="-0.779 0.086 -0.1435">
+        <freejoint /><geom name="test_ball_50_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_51" pos="-1.083 -0.575 -0.1435">
+        <freejoint /><geom name="test_ball_51_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_52" pos="0.16 0.942 -0.1435">
+        <freejoint /><geom name="test_ball_52_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_53" pos="0.602 -0.605 -0.1435">
+        <freejoint /><geom name="test_ball_53_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_54" pos="-0.08 0.732 -0.1435">
+        <freejoint /><geom name="test_ball_54_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_55" pos="0.508 0.127 -0.1435">
+        <freejoint /><geom name="test_ball_55_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_56" pos="1.474 -0.53 -0.1435">
+        <freejoint /><geom name="test_ball_56_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_57" pos="1.449 -0.823 -0.1435">
+        <freejoint /><geom name="test_ball_57_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_58" pos="-0.596 0.894 -0.1435">
+        <freejoint /><geom name="test_ball_58_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_59" pos="0.69 0.771 -0.1435">
+        <freejoint /><geom name="test_ball_59_geom" class="test_ball" />
+      </body>
+      <body name="test_ball_60" pos="1.092 0.762 -0.1435">
+        <freejoint /><geom name="test_ball_60_geom" class="test_ball" />
+      </body>
+      <!-- Additional 42 mm balls, 43 g each, free to roll. -->
+      <body name="large_ball_01" pos="-1.415 -0.219 -0.131">
+        <freejoint /><geom name="large_ball_01_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_02" pos="-0.537 -0.63 -0.131">
+        <freejoint /><geom name="large_ball_02_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_03" pos="-0.019 0.627 -0.131">
+        <freejoint /><geom name="large_ball_03_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_04" pos="-1.028 0.148 -0.131">
+        <freejoint /><geom name="large_ball_04_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_05" pos="0.516 -0.76 -0.131">
+        <freejoint /><geom name="large_ball_05_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_06" pos="-0.787 0.377 -0.131">
+        <freejoint /><geom name="large_ball_06_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_07" pos="0.505 -0.533 -0.131">
+        <freejoint /><geom name="large_ball_07_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_08" pos="-0.163 0.825 -0.131">
+        <freejoint /><geom name="large_ball_08_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_09" pos="-0.491 -0.362 -0.131">
+        <freejoint /><geom name="large_ball_09_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_10" pos="-0.995 -0.328 -0.131">
+        <freejoint /><geom name="large_ball_10_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_11" pos="-0.433 -0.211 -0.131">
+        <freejoint /><geom name="large_ball_11_geom" class="large_test_ball" />
+      </body>
+      <body name="large_ball_12" pos="0.929 0.447 -0.131">
+        <freejoint /><geom name="large_ball_12_geom" class="large_test_ball" />
+      </body>
+    </worldbody>
+  <contact>
+    <exclude body1="L_Claf_link_3" body2="L_Claf_link_4" />
+    <exclude body1="L_Claf_link_3" body2="Left_rear_link" />
+    <exclude body1="L_Claf_link_3" body2="Left_front_link" />
+    <exclude body1="L_Claf_link_3" body2="L_claf_link_1" />
+    <exclude body1="L_Claf_link_3" body2="L_claf_link_2" />
+    <exclude body1="L_Claf_link_3" body2="base_link" />
+    <exclude body1="L_Claf_link_4" body2="Left_rear_link" />
+    <exclude body1="L_Claf_link_4" body2="Left_front_link" />
+    <exclude body1="L_Claf_link_4" body2="L_claf_link_1" />
+    <exclude body1="L_Claf_link_4" body2="L_claf_link_2" />
+    <exclude body1="L_Claf_link_4" body2="base_link" />
+    <exclude body1="Left_rear_link" body2="Left_front_link" />
+    <exclude body1="Left_rear_link" body2="L_claf_link_1" />
+    <exclude body1="Left_rear_link" body2="L_claf_link_2" />
+    <exclude body1="Left_rear_link" body2="base_link" />
+    <exclude body1="Left_front_link" body2="L_claf_link_1" />
+    <exclude body1="Left_front_link" body2="L_claf_link_2" />
+    <exclude body1="Left_front_link" body2="base_link" />
+    <exclude body1="L_claf_link_1" body2="L_claf_link_2" />
+    <exclude body1="L_claf_link_1" body2="base_link" />
+    <exclude body1="L_claf_link_2" body2="base_link" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_1" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_2" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_3" />
+    <exclude body1="Right_front_link" body2="R_Claf_link_4" />
+    <exclude body1="Right_front_link" body2="Right_rear_link" />
+    <exclude body1="Right_front_link" body2="base_link" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_2" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_3" />
+    <exclude body1="R_Claf_link_1" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_1" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_1" body2="base_link" />
+    <exclude body1="R_Claf_link_2" body2="R_Claf_link_3" />
+    <exclude body1="R_Claf_link_2" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_2" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_2" body2="base_link" />
+    <exclude body1="R_Claf_link_3" body2="R_Claf_link_4" />
+    <exclude body1="R_Claf_link_3" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_3" body2="base_link" />
+    <exclude body1="R_Claf_link_4" body2="Right_rear_link" />
+    <exclude body1="R_Claf_link_4" body2="base_link" />
+    <exclude body1="Right_rear_link" body2="base_link" />
+  </contact>
+  <equality>
+    <connect name="closure_001" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_001_a_site" site2="closure_001_b_site" />
+    <connect name="closure_002" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_002_a_site" site2="closure_002_b_site" />
+    <connect name="closure_003" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_003_a_site" site2="closure_003_b_site" />
+    <connect name="closure_004" solref="0.004 1" solimp="0.99 0.999 0.0001 0.5 2" site1="closure_004_a_site" site2="closure_004_b_site" />
+  </equality>
+  <actuator>
+    <general name="Left_front_joint_actuator" joint="Left_front_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Left_rear_joint_actuator" joint="Left_rear_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Left_Wheel_joint_actuator" joint="Left_Wheel_joint" gainprm="1" gear="10" />
+    <general name="Right_front_joint_actuator" joint="Right_front_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Right_rear_joint_actuator" joint="Right_rear_joint" gainprm="50" ctrlrange="-10 10" ctrllimited="true" />
+    <general name="Right_Wheel_joint_actuator" joint="Right_Wheel_joint" gainprm="1" gear="10" />
+  </actuator>
+  <sensor>
+    <framequat name="body_quat" objtype="body" objname="base_link" />
+    <gyro name="body_gyro" site="imu" />
+    <accelerometer name="body_acc" site="imu" />
+    <jointpos name="Lf_joint_pos" joint="Left_front_joint" />
+    <jointvel name="Lf_joint_vel" joint="Left_front_joint" />
+    <jointpos name="Lr_joint_pos" joint="Left_rear_joint" />
+    <jointvel name="Lr_joint_vel" joint="Left_rear_joint" />
+    <jointpos name="Rf_joint_pos" joint="Right_front_joint" />
+    <jointvel name="Rf_joint_vel" joint="Right_front_joint" />
+    <jointpos name="Rr_joint_pos" joint="Right_rear_joint" />
+    <jointvel name="Rr_joint_vel" joint="Right_rear_joint" />
+  </sensor>
+  <keyframe>
+    <key name="home" qpos="0 0 -0.025 0.70710678 0.70710678 0 0 0.2 0.2 0 0 0 0 -0.2 0.2 0 0 0 0 0 -0.2
+      0.838 -0.542 -0.1435 1 0 0 0
+      1.315 -0.767 -0.1435 1 0 0 0
+      -0.168 0.308 -0.1435 1 0 0 0
+      -0.417 0.798 -0.1435 1 0 0 0
+      0.625 0.588 -0.1435 1 0 0 0
+      -1.495 -0.994 -0.1435 1 0 0 0
+      1.37 0.077 -0.1435 1 0 0 0
+      0.126 0.603 -0.1435 1 0 0 0
+      0.432 -0.613 -0.1435 1 0 0 0
+      -0.364 0.617 -0.1435 1 0 0 0
+      -0.899 0.664 -0.1435 1 0 0 0
+      1.152 -0.197 -0.1435 1 0 0 0
+      1.206 -0.785 -0.1435 1 0 0 0
+      -1.055 -0.476 -0.1435 1 0 0 0
+      -0.381 -0.622 -0.1435 1 0 0 0
+      1.096 0.182 -0.1435 1 0 0 0
+      -0.059 -0.443 -0.1435 1 0 0 0
+      -0.608 -0.51 -0.1435 1 0 0 0
+      1.084 -0.784 -0.1435 1 0 0 0
+      -0.684 -0.467 -0.1435 1 0 0 0
+      0.98 -0.148 -0.1435 1 0 0 0
+      -0.445 -0.732 -0.1435 1 0 0 0
+      0.937 -0.037 -0.1435 1 0 0 0
+      1.08 -0.112 -0.1435 1 0 0 0
+      0.605 -0.406 -0.1435 1 0 0 0
+      0.382 -0.105 -0.1435 1 0 0 0
+      0.842 0.352 -0.1435 1 0 0 0
+      1.039 0.045 -0.1435 1 0 0 0
+      -0.475 -0.682 -0.1435 1 0 0 0
+      0.539 0.816 -0.1435 1 0 0 0
+      -0.889 -0.258 -0.1435 1 0 0 0
+      0.025 -0.437 -0.1435 1 0 0 0
+      0.488 -0.066 -0.1435 1 0 0 0
+      1.385 -0.998 -0.1435 1 0 0 0
+      0.412 0.266 -0.1435 1 0 0 0
+      -1.131 -0.806 -0.1435 1 0 0 0
+      -1.413 0.68 -0.1435 1 0 0 0
+      0.167 -0.396 -0.1435 1 0 0 0
+      1.41 0.925 -0.1435 1 0 0 0
+      0.248 -0.292 -0.1435 1 0 0 0
+      1.202 0.71 -0.1435 1 0 0 0
+      0.632 0.371 -0.1435 1 0 0 0
+      -0.314 -0.336 -0.1435 1 0 0 0
+      -1.091 -0.709 -0.1435 1 0 0 0
+      0.749 0.556 -0.1435 1 0 0 0
+      -1.328 0.14 -0.1435 1 0 0 0
+      1.315 0.53 -0.1435 1 0 0 0
+      0.384 -0.347 -0.1435 1 0 0 0
+      1.401 -0.086 -0.1435 1 0 0 0
+      -0.779 0.086 -0.1435 1 0 0 0
+      -1.083 -0.575 -0.1435 1 0 0 0
+      0.16 0.942 -0.1435 1 0 0 0
+      0.602 -0.605 -0.1435 1 0 0 0
+      -0.08 0.732 -0.1435 1 0 0 0
+      0.508 0.127 -0.1435 1 0 0 0
+      1.474 -0.53 -0.1435 1 0 0 0
+      1.449 -0.823 -0.1435 1 0 0 0
+      -0.596 0.894 -0.1435 1 0 0 0
+      0.69 0.771 -0.1435 1 0 0 0
+      1.092 0.762 -0.1435 1 0 0 0
+      -1.415 -0.219 -0.131 1 0 0 0
+      -0.537 -0.63 -0.131 1 0 0 0
+      -0.019 0.627 -0.131 1 0 0 0
+      -1.028 0.148 -0.131 1 0 0 0
+      0.516 -0.76 -0.131 1 0 0 0
+      -0.787 0.377 -0.131 1 0 0 0
+      0.505 -0.533 -0.131 1 0 0 0
+      -0.163 0.825 -0.131 1 0 0 0
+      -0.491 -0.362 -0.131 1 0 0 0
+      -0.995 -0.328 -0.131 1 0 0 0
+      -0.433 -0.211 -0.131 1 0 0 0
+      0.929 0.447 -0.131 1 0 0 0" />
+  </keyframe>
+</mujoco>

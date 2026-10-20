@@ -1,0 +1,6 @@
+-r requirements-mjbatch.txt
+pytest>=8,<10
+scipy>=1.10,<2
+glfw>=2.7,<3
+Pillow>=10,<13
+matplotlib>=3.8,<4

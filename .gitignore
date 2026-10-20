@@ -1,4 +1,4 @@
-logs/
+/logs/
 controller
 control/*.o
 control/build/
@@ -8,5 +8,10 @@ control/runtime/*.o
 control/*.bak
 __pycache__/
 .venv-mjbatch/
+.pytest_cache/
+.ruff_cache/
+*.egg-info/
+build/
+dist/
 *.log
 *.png

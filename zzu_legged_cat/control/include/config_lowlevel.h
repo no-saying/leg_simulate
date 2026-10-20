@@ -1,0 +1,183 @@
+/* config_lowlevel.h - 低层执行器 / GUI调试 / 历史测试 参数
+ * 由 control_config.h 统一包含。 */
+#ifndef CONFIG_LOWLEVEL_H
+#define CONFIG_LOWLEVEL_H
+
+/* ==========================================================================
+ * runtime/robot_control.c 低层输出参数
+ * ========================================================================== */
+
+#ifndef LEG_ANGLE_KP
+/* 四腿关节角度伺服 P 增益。实测 15.0 会让腿伺服变硬、
+ * 与位置保持耦合导致车漂移 ±2m 且腿像泄力, 恢复原 4.0。 */
+#if MODEL_V3
+#define LEG_ANGLE_KP 50.0f  /* v3 闭链腿: 高刚度才不被轮驱反作用力推离 */
+#else
+#define LEG_ANGLE_KP 4.0f
+#endif
+#endif
+
+#ifndef LEG_ANGLE_KI
+/* 四腿关节角度伺服 I 增益。用于消除静差，过大会慢性振荡。 */
+#if MODEL_V3
+#define LEG_ANGLE_KI 0.05f  /* v3: 积分减小, 防积分饱和甩腿 */
+#else
+#define LEG_ANGLE_KI 0.90f
+#endif
+#endif
+
+#ifndef LEG_ANGLE_KD
+/* 四腿关节角度伺服 D 增益。用于抑制腿关节速度，过大会放大速度噪声。 */
+#if MODEL_V3
+#define LEG_ANGLE_KD 0.60f  /* v3 轻机构: 需要速度阻尼压住 200Hz 采样极限环 */
+#else
+#define LEG_ANGLE_KD 0.045f
+#endif
+#endif
+
+#ifndef LEG_ANGLE_MAX
+/* 腿关节 PID 输出限幅，不是腿角参考限幅。 */
+#if MODEL_V3
+#define LEG_ANGLE_MAX 10.0f
+#else
+#define LEG_ANGLE_MAX 8.0f
+#endif
+#endif
+
+#ifndef LEG_ANGLE_DEADBAND
+/* 腿关节角误差死区，单位 rad；必须明显小于手动腿长指令幅度，
+ * 否则 E/Q 的腿长目标偏移会被死区吞掉(实测 0.012 死区 = 0.012 指令时不响应)。 */
+#define LEG_ANGLE_DEADBAND 0.003f
+#endif
+
+#ifndef LEG_ANGLE_OUT_LPF
+/* 腿关节 PID 输出低通系数/时间项；当前 0 表示不额外滤波。 */
+#define LEG_ANGLE_OUT_LPF 0.0f
+#endif
+
+#ifndef LEG_ANGLE_IMPROVE
+/* PID 微分模式。默认对测量微分，减少设定值阶跃造成的微分冲击。 */
+#define LEG_ANGLE_IMPROVE PID_Derivative_On_Measurement
+#endif
+
+#ifndef WHEEL_MIX_BALANCE_WEIGHT
+/* balance.c 输出的俯仰共模扭矩最终缩放权重。 */
+#if MODEL_V3
+#define WHEEL_MIX_BALANCE_WEIGHT 1.0f   /* v3 轻车: 俯仰扭矩全量直出 */
+#else
+#define WHEEL_MIX_BALANCE_WEIGHT 0.60f
+#endif
+#endif
+
+#ifndef WHEEL_MIX_YAW_WEIGHT
+/* balance.c 输出的偏航差动扭矩最终缩放权重。 */
+#define WHEEL_MIX_YAW_WEIGHT 0.40f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_ENABLE
+/* 输出层最终轮速保护开关；只修正俯仰共模扭矩，不动偏航差动项。 */
+#if MODEL_V3
+#define WHEEL_OUTPUT_SPEED_CAP_ENABLE 0
+#else
+#define WHEEL_OUTPUT_SPEED_CAP_ENABLE 1
+#endif
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_START
+/* 输出层轮速保护启动阈值，单位 m/s。 */
+#define WHEEL_OUTPUT_SPEED_CAP_START 3.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_KP
+/* 输出层轮速保护刹车增益，单位 Nm/(m/s)。 */
+#define WHEEL_OUTPUT_SPEED_CAP_KP 4.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_MIN_TAU
+/* 输出层轮速保护最小反向扭矩，单位 Nm。 */
+#define WHEEL_OUTPUT_SPEED_CAP_MIN_TAU 1.5f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_MAX_TAU
+/* 输出层轮速保护最大反向扭矩，单位 Nm。 */
+#define WHEEL_OUTPUT_SPEED_CAP_MAX_TAU 12.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_HOLD_KP
+/* 输出层轮速持续超限时，保持时间到额外刹车扭矩的增益。 */
+#define WHEEL_OUTPUT_SPEED_CAP_HOLD_KP 2.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_HOLD_MAX
+/* 输出层轮速超限 hold 时间最大值，单位 s。 */
+#define WHEEL_OUTPUT_SPEED_CAP_HOLD_MAX 4.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_DECAY
+/* 输出层轮速恢复后 hold 时间衰减速度，单位 s/s。 */
+#define WHEEL_OUTPUT_SPEED_CAP_DECAY 3.0f
+#endif
+
+#ifndef WHEEL_OUTPUT_SPEED_CAP_PITCH_GATE
+/* 只有 |pitch| 小于该值时才累积输出层轮速保护保持时间，单位 rad。 */
+#define WHEEL_OUTPUT_SPEED_CAP_PITCH_GATE 0.14f
+#endif
+
+
+/* ==========================================================================
+ * controller.c 调试/开环测试参数
+ * ========================================================================== */
+
+#ifndef OPEN_LOOP_WHEEL_TEST
+/* 开环轮输出测试开关。开启后绕过 balance 轮输出，只写下面两个控制量。 */
+#define OPEN_LOOP_WHEEL_TEST 0
+#endif
+
+#ifndef OPEN_LOOP_WHEEL_CTRL_L
+/* 开环左轮执行器控制量，只有 OPEN_LOOP_WHEEL_TEST=1 时有效。 */
+#define OPEN_LOOP_WHEEL_CTRL_L 0.0
+#endif
+
+#ifndef OPEN_LOOP_WHEEL_CTRL_R
+/* 开环右轮执行器控制量，只有 OPEN_LOOP_WHEEL_TEST=1 时有效。 */
+#define OPEN_LOOP_WHEEL_CTRL_R 0.0
+#endif
+
+
+/* ==========================================================================
+ * 历史无界面测试参数
+ * ========================================================================== */
+
+#ifndef RUN_HEADLESS_TEST_DT
+/* 历史无界面测试文件使用的打印时间步长，单位 s；当前主入口不使用该文件。 */
+#define RUN_HEADLESS_TEST_DT 0.001
+#endif
+
+#ifndef LEG_V3_SERVO_KP
+/* v3 腿三环(空中辨识参数, scripts/tools/ident_leg_joint_map.py):
+ *   虚拟坐标动力学(经 J^-T·(M/B/K)·J^-1 完整变换, 左腿):
+ *     腿长 L : F_L = 0.071*Ldd + 19.1*Ld + 547.8*L
+ *     腿摆 sw: F_sw = 0.123*swdd + 35.1*swd + 924.4*sw
+ *   位置环 P 取等效刚度量级(补偿机构约束), D 取 2*sqrt(M*K) 加裕度:
+ *     KpL=550(≈547.8), KdL=20(>2*sqrt(0.071*547.8)=12.5)
+ *     KpS=920(≈924.4), KdS=25(>2*sqrt(0.123*924.4)=21.3)
+ *   结构: 位置环(L/sw 误差)->虚拟力->J^T 关节力矩/50。 */
+#define LEG_V3_SERVO_KP 1200.0f  /* v3: 折中: 跑通版2000太硬(摆腿时猛拉抽),
+                                  * 辨识值550太软(平衡打转)。1200保持支撑
+                                  * 同时降低摆腿耦合振荡。 */
+#define LEG_V3_SERVO_KD 60.0f
+#define LEG_V3_LEG_GAIN 50.0f
+/* 腿摆环(同上辨识): 全行程直接三环, 无死区。
+ * KP=450: 比跑通版 300 更硬, 转向时能顶住轮子反作用力不让腿被剪开;
+ * KD=18: 左右腿各自的速度阻尼(差模/剪刀模式也被阻尼), 压掉高频晃动;
+ * 死区 0.005: 原来 0.02 死区让腿摆误差积累过阈值后伺服才介入,
+ * 形成"自由-猛拉-自由"极限环, 视觉上就是一抽一抽。 */
+#define LEG_V3_SW_KP   450.0f
+#define LEG_V3_SW_KD   18.0f
+#define LEG_V3_SW_DEAD 0.005f
+/* 中位(按重心标定, ident_leg_joint_map.py): claf0=+0.22/thigh=-0.22
+ * 时合成重心落在轮轴正上方, L≈0.117, sw≈-0.017(轮子竖直)。 */
+#define LEG_V3_L_MID  0.117f
+#endif
+
+#endif

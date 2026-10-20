@@ -1,0 +1,191 @@
+/*
+ * app_sim.c - 应用层: 仿真模型加载/复位/单步推进
+ * ================================================================
+ * 从原 controller.c 拆出，职责:
+ *   1. 加载 MJCF 模型并创建 mjData。
+ *   2. 复位到初始位姿、清理平衡核心状态。
+ *   3. 每个物理步: mj_step -> sensors_read -> robot_control_step ->
+ *      写回执行器控制量。
+ *   4. 开环轮测试钩子(OPEN_LOOP_WHEEL_TEST)与自动启用平衡。
+ */
+#include "app_internal.h"
+
+#include <math.h>
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+
+#include "balance.h"
+#include "robot_control.h"
+#include "controllers/supervisor/controller_supervisor.h"
+
+static int configure_test_slope(Simulation *sim)
+{
+    sim->slope_quat[0] = 1.0;
+    const char *value = getenv("SIM_SLOPE_DEG");
+    if (!value || !*value) return 1;
+    char *end;
+    double degrees = strtod(value, &end);
+    if (*end || !isfinite(degrees) || fabs(degrees) > 20.0) {
+        fprintf(stderr, "ERROR: SIM_SLOPE_DEG must be between -20 and 20\n");
+        return 0;
+    }
+    int floor = mj_name2id(sim->model, mjOBJ_GEOM, "floor");
+    if (floor < 0 || sim->model->geom_type[floor] != mjGEOM_PLANE ||
+        sim->model->geom_bodyid[floor] != 0) {
+        fprintf(stderr, "ERROR: slope scene requires a world floor plane\n");
+        return 0;
+    }
+    double half_angle = degrees * 3.141592653589793 / 360.0;
+    sim->slope_quat[0] = cos(half_angle);
+    sim->slope_quat[2] = sin(half_angle);
+    mjtNum original[4];
+    mju_copy4(original, sim->model->geom_quat + 4*floor);
+    mju_mulQuat(sim->model->geom_quat + 4*floor, sim->slope_quat, original);
+    sim->model->geom_sameframe[floor] = mjSAMEFRAME_NONE;
+    fprintf(stderr, "[Terrain] slope=%.1f deg (world Y rotation)\n", degrees);
+    return 1;
+}
+
+static void set_scene_initial_pose(Simulation *sim)
+{
+    sensors_set_initial_pose(sim->model, sim->data);
+    if (sim->slope_quat[2] == 0.0) return;
+    int floor = mj_name2id(sim->model, mjOBJ_GEOM, "floor");
+    const mjtNum *origin = sim->model->geom_pos + 3*floor;
+    /* Rotate all free objects about the floor origin, preserving clearance. */
+    for (int j = 0; j < sim->model->njnt; ++j) {
+        if (sim->model->jnt_type[j] != mjJNT_FREE) continue;
+        mjtNum *pose = sim->data->qpos + sim->model->jnt_qposadr[j];
+        mjtNum relative[3], rotated[3], original[4];
+        mju_sub3(relative, pose, origin);
+        mju_rotVecQuat(rotated, relative, sim->slope_quat);
+        mju_add3(pose, rotated, origin);
+        mju_copy4(original, pose + 3);
+        mju_mulQuat(pose + 3, sim->slope_quat, original);
+    }
+}
+
+int simulation_load(Simulation *sim, const char *xml_path)
+{
+    char err[1000] = "";
+    memset(sim, 0, sizeof(*sim));
+
+    sim->model = mj_loadXML(xml_path, NULL, err, sizeof(err));
+    if (!sim->model) {
+        fprintf(stderr, "ERROR: %s\n", err);
+        return 0;
+    }
+    fprintf(stderr, "XML loaded\n");
+    if (!configure_test_slope(sim)) {
+        mj_deleteModel(sim->model);
+        sim->model = NULL;
+        return 0;
+    }
+
+    sim->data = mj_makeData(sim->model);
+    if (!sim->data) {
+        fprintf(stderr, "ERROR: mj_makeData failed\n");
+        mj_deleteModel(sim->model);
+        sim->model = NULL;
+        return 0;
+    }
+    fprintf(stderr, "Data created\n");
+
+    set_scene_initial_pose(sim);
+    mj_forward(sim->model, sim->data);
+    fprintf(stderr, "Init done\n");
+    return 1;
+}
+
+void simulation_destroy(Simulation *sim)
+{
+    if (sim->data) mj_deleteData(sim->data);
+    if (sim->model) mj_deleteModel(sim->model);
+    memset(sim, 0, sizeof(*sim));
+}
+
+void maybe_auto_enable_balance(Simulation *sim)
+{
+#if !OPEN_LOOP_WHEEL_TEST
+    /* 启动步数可用 BALANCE_START_STEP 环境变量覆盖(默认 20 步=0.02s),
+     * 用于测试"平衡从第一步就开启"是否能消除启动瞬态。 */
+    static int start_step = -1;
+    if (start_step < 0) {
+        const char *e = getenv("BALANCE_START_STEP");
+        start_step = e ? atoi(e) : AUTO_BALANCE_STEP;
+    }
+    if (!sim->auto_balance_done &&
+        sim->state.step_count >= start_step &&
+        !balance_active()) {
+        balance_toggle();
+        sim->auto_balance_done = 1;
+        printf("[Auto] Balance ON @ t=%.3fs\n", start_step * sim->model->opt.timestep);
+    }
+#else
+    (void)sim;
+#endif
+}
+
+void simulation_reset(Simulation *sim)
+{
+    set_scene_initial_pose(sim);
+    mj_forward(sim->model, sim->data);
+
+    sim->state.step_count = 0;
+    sim->state.sim_time = 0.0;
+    sim->auto_balance_done = 0;
+    memset(&sim->state.ctrl, 0, sizeof(sim->state.ctrl));
+
+    /* 平衡核心状态复位: 关/开一次，清空里程计、接触滞回和侧翻标志。 */
+    balance_reset_state();
+    balance_init();
+    balance_toggle();
+    /* Reset all stateful control layers together with the MuJoCo state.
+     * Otherwise a reset can resume with the previous LQR hold output or
+     * supervisor blend state. */
+    robot_control_reset();
+    controller_supervisor_init();
+    g_key_w = g_key_a = g_key_s = g_key_d = 0;
+    g_key_extend = g_key_shorten = 0;
+    g_manual_leg_target = 0.0f;
+    balance_set_leg_extend_manual(0.0f);
+    balance_set_manual(0.0f, 0.0f, 0);
+    printf("[Reset] pose restored, balance re-armed\n");
+}
+
+static void apply_body_lock_if_requested(Simulation *sim, int body_lock)
+{
+    if (!body_lock) return;
+
+    set_scene_initial_pose(sim);
+}
+
+void apply_open_loop_override(SensorState *s)
+{
+#if OPEN_LOOP_WHEEL_TEST
+    s->ctrl[2] = OPEN_LOOP_WHEEL_CTRL_L;
+    s->ctrl[5] = OPEN_LOOP_WHEEL_CTRL_R;
+#else
+    (void)s;
+#endif
+}
+
+int simulation_step(Simulation *sim, int body_lock)
+{
+    mj_step(sim->model, sim->data);
+    apply_body_lock_if_requested(sim, body_lock);
+
+    if (!sensors_read(sim->model, sim->data, &sim->state))
+        return 0;
+
+    robot_control_step(&sim->state, sim->model->opt.timestep);
+    apply_open_loop_override(&sim->state);
+
+    for (int i = 0; i < ACTUATOR_COUNT; i++)
+        sim->data->ctrl[i] = sim->state.ctrl[i];
+
+    sim->state.step_count++;
+    sim->state.sim_time = sim->state.step_count * sim->model->opt.timestep;
+    return 1;
+}
