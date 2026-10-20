@@ -18,9 +18,17 @@
 
 /* 初始化(幂等) */
 void lqr_controller_init(void);
+int lqr_controller_model_valid(void);
 
 /* 每控制步更新: 根据当前 leg_len 选段, 计算 LQR 输出 */
 void lqr_controller_update(const SensorState *s, double dt, ControlCmd *out);
+void lqr_controller_update_full(const SensorState *s, double dt, ControlCmd *out);
+void lqr_controller_update_pitch3(const SensorState *s, double dt, float *wheel_tau_out);
+void lqr_controller_set_v_ref(float v_ref_state, int valid);
+void lqr_controller_set_pose_ref(float pitch, float swing, float extension, float differential);
+float lqr_controller_trim_swing(float leg_len);
+void lqr_controller_set_yaw_ref(float yaw_rate);
+void lqr_controller_update_analytic(const SensorState *s, double dt, float *wheel_tau_out);
 
 /* 当前生效的腿长段索引, 供日志/调试 */
 int lqr_controller_segment(void);

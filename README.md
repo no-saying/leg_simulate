@@ -63,7 +63,9 @@ leg_simulate/
 │
 ├── scripts/                      # 训练/评估/导出/验证
 │   ├── jump_rl_env.py            # RL 跳跃训练环境(含部署一致性)
-│   ├── train_jump_rl.py          # PPO 训练(多进程并行)
+│   ├── train_jump_rl.py          # PPO 训练(mjbatch / 独立进程)
+│   ├── jump_rl_batch_env.py      # mjbatch 向量环境, 批量观测/动作/奖励
+│   ├── rl_batch_control.py      # 每实例独立 C 控制器及构建缓存
 │   ├── eval_jump_rl.py           # 训练结果评估
 │   ├── run_jump_rl.py            # Python 渲染回放
 │   ├── verify_rl_jump_c.py       # C 前向 vs Python 一致性验证
@@ -99,8 +101,29 @@ leg_simulate/
 附加子系统：
 
 - **roll 轴稳定**：左右差动腿伸长找平车体（哪边沉就抬哪边）。
+  增益按几何标定：轮距 0.252m 时"完全补偿 1rad 侧倾"只要差动腿长 0.126m，
+  所以 `ROLL_STAB_KP` 的量级是 0.1~0.3 m/rad；给到 8 会让 |roll|>0.3° 就吃满
+  限幅、整环变 bang-bang 极限环（静止时 roll 峰峰 12°、腿长来回抽）。
 - **腿长控制**：E/Q 手动升降，共模伸长 + 左右差动。
 - **行车记录仪**：CSV 逐帧记录传感器/指令/操作 + 按键事件日志。
+
+#### 手动驾驶（W/S/A/D）用腿摆走路
+
+前后运动**不用目标俯仰角**，而是把腿摆 `sw` 当速度执行器：
+
+```
+W/S/A/D → v_ref(ramp 后的目标速度) → 腿摆速度环
+        swing = -Kv·(v_ref - v_body)     (v_body 是已扣除腿运动学耦合的机体速度)
+        → 腿摆前后移 → 质心相对轮轴前后移 → 俯仰环输出轮扭矩 → 车走
+```
+
+- `sw` 是"轮轴相对基座的前向偏移"，**sw 减小 = 质心前移 = 车前进**，
+  所以前进指令给负摆角偏置（与直觉相反，改符号前先看 `balance_step_origin.inc`）。
+- 目标俯仰恒为 `SIMPLE_BASE_NEUTRAL`(0)，俯仰环只负责站直。
+- `A/D` 纯转向 = `v_ref` 由"钉住进入点"的位置环给出，腿摆负责不让车前后溜，
+  差速只负责转向；`hold_pos` 在进手动时锚到当前里程计位置。
+- 参数集中在 `control/include/config_manual.h`；摆角平衡点标定项是
+  `SIMPLE_MANUAL_SWING_TRIM`（手动硬伺服下零速平衡的摆角偏置）。
 
 ### 2. 上层控制器（controllers/）
 
@@ -138,7 +161,7 @@ IDLE →(空格) PREP →(收腿到最短) ACTIVE →(落地稳定/超时) FADEO
 **训练流程**：
 
 ```bash
-# 训练(多进程并行, 22 核机器建议 N_ENVS=10)
+# 训练(独立进程并行)
 GAMMA=0.999 N_ENVS=10 OUT=scripts/jump_rl_vN python3 scripts/train_jump_rl.py 500000
 
 # 导出权重到 C 控制器
@@ -150,6 +173,44 @@ JUMP_MODEL=scripts/jump_ppo.zip python3 scripts/verify_rl_jump_c.py
 
 make -C control        # 重新编译
 ```
+
+**mjbatch 训练后端**：已在 `.venv-mjbatch` 中安装本地 mjbatch，使用 MuJoCo 3.14.0。
+每个实例有独立的 C 控制器状态，预热在原生线程中执行；RL 阶段按 1 ms 步长
+更新控制，观测仍为 34 维、动作为 5 维，兼容现有 PPO 权重导出流程。
+
+```bash
+RL_BACKEND=mjbatch N_ENVS=16 MJ_THREADS=8 N_STEPS=1024 GAMMA=0.999 \
+  OUT=logs/rl_training/jump_mjbatch \
+  .venv-mjbatch/bin/python scripts/train_jump_rl.py 500000
+
+# 数值一致性、控制状态隔离、局部自动重置测试
+.venv-mjbatch/bin/python -m pytest scripts/tools/test_jump_rl_batch.py -q
+
+# 含预热/回合重置开销的采样测速
+.venv-mjbatch/bin/python scripts/tools/benchmark_jump_rl_batch.py --envs 16 --threads 8
+```
+
+首次构建需要 GCC/OpenMP。`RL_BACKEND=subproc` 可使用独立进程后端。
+安装步骤与测试结果见 [mjbatch 训练说明](docs/MJBATCH_RL_20261016.md)。
+
+**RL 调试总日志**：[从 mjbatch 接入到平地重建与 PD/P 参数确定](docs/RL_DEBUG_LOG_20261018.md)。
+该日志汇总本次对话的方案演变、训练结果、已确认问题和未完成事项；下面的残差接口为历史版本。
+
+**仿真后端分层**：[控制框架与 Isaac 迁移边界](docs/ROBOT_FRAMEWORK_20261020.md)。
+可复用核心位于 `scripts/wheel_legged/`，物理接口使用传感器状态与关节 Nm；
+MuJoCo 绑定独立在 `backends/`。目前完成 CPU 参考实现，Isaac/GPU 后端待接入。
+
+**斜坡小陀螺训练（早期残差版本）**：独立的残差 PPO 任务，输入为 41 维传感器和控制状态的 8 帧历史
+(328 维)，输出为 5 维腿长、腿摆和轮端力矩修正。roll 奖励为主，pitch 约束较弱。
+控制器与奖励共用起停转速轨迹，每 10 万步保存并评估固定工况。
+
+```bash
+.venv-mjbatch/bin/python scripts/train_spin_rl.py --steps 500000 --slope 3
+.venv-mjbatch/bin/python scripts/eval_spin_rl.py --slopes 0 3 5 8
+.venv-mjbatch/bin/python -m pytest scripts/tools/test_spin_rl.py -q
+```
+
+接口、完整腿长范围、课程与验收见 [斜坡小陀螺训练说明](docs/SPIN_RL_20261016.md)。
 
 **部署一致性保证**：
 
@@ -175,6 +236,7 @@ make -C control        # 编译
 | --- | --- |
 | W / S | 前进 / 后退 |
 | A / D | 左转 / 右转 |
+| Z (或 T) | 原地小陀螺（恒定偏航角速度自转，1.2 rad/s 目标，实测 ~0.67 rad/s） |
 | E / Q | 腿伸长(升高) / 腿缩短(降低) |
 | SPACE | RL 跳跃(先收腿到最短再执行) |
 | H | 侧翻自救(手动) |

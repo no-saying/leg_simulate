@@ -8,12 +8,14 @@
  * ========================================================================== */
 
 #ifndef SIMPLE_PARK_VEL_DAMP
-/* 近原点停车速度阻尼；只在 pitch 足够小且运行足够久时介入。
- * 目标俯仰限幅收紧后 pitch 始终 <6°，原 18 的强刹车会一直叠加在
- * 平衡环上、吃掉救车扭矩(实测 pitch 往 tp 方向恢复时扭矩从 15Nm
- * 被压到 3Nm)。降到 4 只保留轻微停靠阻尼，主刹由 SIMPLE_VEL_DAMP
- * 承担。 */
-#define SIMPLE_PARK_VEL_DAMP 4.0f
+/* 近原点停车速度阻尼，单位 Nm/(m/s)。**置 0 停用**。
+ * 它和 SIMPLE_VEL_DAMP 是同一个 −K·v 形式的共模轮扭矩项: 两个都是 4
+ * 时总增益 8, 叠加 12ms 轮速滤波的相位滞后后这个"速度->俯仰"回路不
+ * 再稳定——实测关掉小陀螺/松手的瞬间车会以 3m/s 冲出去(13s 前进
+ * 9.6m, 用户反馈"取消陀螺会高速漂移刹不住车")。
+ * 只留 SIMPLE_VEL_DAMP=4、park 置 0 后同一工况只前进 0.15m。
+ * 静止慢漂两种设置实测都是 0.000m/s, park 没有额外贡献。 */
+#define SIMPLE_PARK_VEL_DAMP 0.0f
 #endif
 
 #ifndef SIMPLE_SPIN_DAMP
@@ -239,5 +241,52 @@
 /* 打滑残差阈值，单位 m/s^2；|wheel_acc - imu_acc| 超过它认为轮速不可信。 */
 #define SIMPLE_SLIP_RESIDUAL 18.0f
 #endif
+
+#ifndef SIMPLE_SLIP_LOW_V
+/* 低速打滑判据的"机体速度"阈值，单位 m/s。
+ * 旧判据用 |imu_acc|>0.1m/s^2 当证据: IMU 加速度的偏置/腿摆噪声
+ * 轻松超过 0.1, 静止时 |轮速|<0.15 又恒成立, 于是打滑标志一上电就
+ * 锁死。打滑标志会直接把腿摆指令清零, 表现为"腿摆摆一下又回去了 /
+ * 按 S 不走"(用户实测)。改成用融合速度 simple_imu_v 做证据:
+ * 只有"机体确实在动(>0.2m/s)而轮子不转"才是真正的抱死滑动。 */
+#define SIMPLE_SLIP_LOW_V 0.20f
+#endif
+
+/* Speed evidence in m/s, after leg and yaw compensation. Timers use seconds. */
+#ifndef SIMPLE_SLIP_V_ENTER
+#define SIMPLE_SLIP_V_ENTER 0.22f
+#endif
+#ifndef SIMPLE_SLIP_A_ENTER
+#define SIMPLE_SLIP_A_ENTER 1.5f
+#endif
+#ifndef SIMPLE_SLIP_YAW_V_ENTER
+#define SIMPLE_SLIP_YAW_V_ENTER 0.22f
+#endif
+#ifndef SIMPLE_SLIP_ENTER_T
+#define SIMPLE_SLIP_ENTER_T 0.050f
+#endif
+#ifndef SIMPLE_SLIP_WHEEL_V_ENTER
+#define SIMPLE_SLIP_WHEEL_V_ENTER 0.32f
+#endif
+#ifndef SIMPLE_SLIP_FAST_V
+#define SIMPLE_SLIP_FAST_V 0.70f
+#endif
+#ifndef SIMPLE_SLIP_FAST_T
+#define SIMPLE_SLIP_FAST_T 0.012f
+#endif
+#ifndef SIMPLE_SLIP_EXIT_T
+#define SIMPLE_SLIP_EXIT_T 0.150f
+#endif
+#ifndef SIMPLE_SLIP_IMU_HORIZON
+#define SIMPLE_SLIP_IMU_HORIZON 0.60f
+#endif
+
+/* Each wheel is compared against IMU/base motion after yaw/leg compensation. */
+#define WHEEL_OBSTACLE_V_ENTER 0.30f
+#define WHEEL_OBSTACLE_V_EXIT  0.16f
+#define WHEEL_OBSTACLE_V_MIN   0.10f
+#define WHEEL_OBSTACLE_A_ENTER 6.0f
+#define WHEEL_OBSTACLE_ENTER_T 0.020f
+#define WHEEL_OBSTACLE_EXIT_T  0.150f
 
 #endif

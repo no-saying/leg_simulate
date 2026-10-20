@@ -10,22 +10,28 @@
  * 这里不放控制算法；所有状态读写都通过 balance_internal.h 的 g_balance。
  */
 #include "balance_internal.h"
+#include "vel_kf.h"
 
 #include <math.h>
 
 void balance_init(void)  { g_balance.bal_mode = 0; }
 
+void balance_set_turn_full_range(int enabled)
+{
+    g_balance.turn_full_range = enabled != 0;
+}
+
 void balance_reset_state(void)
 {
-    /* 训练/测试每回合前调用: balance_init 只切模式, 不清积分/滤波,
-     * 这里把 g_balance 全部状态恢复到初始值(首次调用时保存初始拷贝)。 */
-    static int saved = 0;
-    static BalanceRuntime initial;
-    if (!saved) {
-        initial = g_balance;
-        saved = 1;
-    }
-    g_balance = initial;
+    g_balance = (BalanceRuntime){
+        .P = {{0.04f, 0.0f, 0.0f}, {0.0f, 0.25f, 0.0f}, {0.0f, 0.0f, 0.09f}},
+        .wheel_trust_dbg = 1.0f,
+        .pos_trust_dbg = 1.0f,
+        .support_dbg = 1.0f,
+        .contact_mode_dbg = CONTACT_STICK,
+        .side_support_balance = 1.0f,
+    };
+    vel_kf_reset();
 }
 
 void balance_toggle(void) { g_balance.bal_mode = !g_balance.bal_mode; }
@@ -33,17 +39,34 @@ int  balance_active(void) { return g_balance.bal_mode; }
 int  balance_get_manual_active(void) { return g_balance.manual_active; }
 int  balance_get_post_manual(void) { return g_balance.post_manual; }
 float balance_get_manual_v(void) { return g_balance.manual_v; }
+float balance_get_manual_v_target(void) { return g_balance.manual_v_target; }
 float balance_get_manual_yaw(void) { return g_balance.manual_yaw; }
+int balance_get_manual_spin(void) { return g_balance.manual_active && g_balance.manual_spin_active; }
 float balance_get_hold_pos(void) { return g_balance.hold_pos; }
 
 void balance_set_manual(float speed_ref, float yaw_rate_ref, int active)
 {
+    int was_external_spin = g_balance.spin_rate_external && g_balance.manual_spin_active;
+    g_balance.spin_rate_external = 0;
     int want_active = (active && g_balance.bal_mode) ? 1 : 0;
+    if (want_active && g_balance.manual_active) {
+        if (fabsf(g_balance.manual_v_target) >= 0.05f && fabsf(speed_ref) < 0.05f) {
+            g_balance.hold_pos = g_balance.pos;
+            g_balance.manual_stop_pending = 1;
+            g_balance.manual_stop_calm_t = 0.0f;
+        }
+        if (fabsf(g_balance.manual_yaw_target) >= 0.05f &&
+            fabsf(yaw_rate_ref) < 0.05f) {
+            g_balance.yaw_zero = g_balance.yaw_raw_prev;
+            g_balance.yaw_i = 0.0f;
+        }
+    }
     if (want_active && !g_balance.manual_active) {
         /* 刚进入手动: 保持点从当前位置开始，并把当前航向锁为新零点，
          * 这样 A/D 转向从当前朝向累积，松开后保持当前航向而不是转回启动朝向。 */
         g_balance.hold_pos = g_balance.pos;
         g_balance.yaw_zero = g_balance.yaw_raw_prev;
+        g_balance.post_spin = 0;
     }
     if (!want_active && g_balance.manual_active) {
         /* 松手边沿(只执行一次): 保持点吸附到当前实际位置，车停在这里。
@@ -51,22 +74,51 @@ void balance_set_manual(float speed_ref, float yaw_rate_ref, int active)
         g_balance.hold_pos = g_balance.pos;
         g_balance.yaw_zero = g_balance.yaw_raw_prev;
         g_balance.manual_neutral = 0.0f;
-        /* 只有 W/S 前后行驶后松手才进摆腿刹车(车有前进速度);
-         * A/D 纯转向本身不产生位移(原地差速), 松手直接交回自动
-         * 位置保持, 避免摆腿刹车在低速假速度下扰动 pitch 翻车。 */
-        g_balance.post_manual = (fabsf(g_balance.manual_v) >= 0.05f) ? 1 : 0;
+        g_balance.post_spin = g_balance.leg_len_dbg >= 0.140f &&
+                              fabsf(g_balance.manual_v) < 0.05f &&
+                              (fabsf(g_balance.manual_yaw) >= 0.05f || was_external_spin);
+        /* 松手后是否进"摆腿刹车"阶段。
+         * 旧逻辑只在按过 W/S(|manual_v|>=0.05)时才刹车, 于是关掉小陀螺/
+         * 松开 A/D 时 post_manual=0, 腿摆参考直接掉回 0 —— 而 0 是
+         * "往前跑"的配平点(手动平衡配平在 SIMPLE_MANUAL_SWING_TRIM≈0.016),
+         * 车会被这个静差推着加速。实测关小陀螺后 3s 内冲到 2.8m/s、漂 4m
+         * (用户反馈"取消小陀螺会高速漂移刹不住")。改成"只要松手时车还有
+         * 速度, 就进刹车阶段"。 */
+        g_balance.post_manual = (fabsf(g_balance.manual_v) >= 0.05f ||
+                                 fabsf(g_balance.manual_yaw) >= 0.05f ||
+                                 fabsf(g_balance.body_v_filt) > 0.05f || was_external_spin) ? 1 : 0;
         g_balance.post_manual_t = 0.0f;
     }
     g_balance.manual_v_target = speed_ref;
     g_balance.manual_yaw_target = yaw_rate_ref;
+    g_balance.manual_spin_active = want_active && fabsf(speed_ref) < 0.05f &&
+        fabsf(yaw_rate_ref) >
+            0.5f * (SIMPLE_MANUAL_YAW_RATE + SIMPLE_MANUAL_SPIN_YAW_RATE);
     /* 手动激活瞬间(从 auto 切入): 目标俯仰从 0 开始斜坡, 避免
      * neutral 瞬间跳变导致 pitch 甩动/趴地(GUI 实测按 W 即翻)。 */
     if (want_active && !g_balance.manual_active)
         g_balance.manual_neutral = 0.0f;
     g_balance.manual_active = want_active;
+    if (!want_active || fabsf(speed_ref) >= 0.05f) {
+        g_balance.manual_stop_pending = 0;
+        g_balance.manual_stop_calm_t = 0.0f;
+    }
     if (!g_balance.manual_active) {
         g_balance.manual_v = 0.0f;
         g_balance.manual_yaw = 0.0f;
+    }
+}
+
+void balance_set_spin_rate_reference(float yaw_rate_ref, int active)
+{
+    float rate = isfinite(yaw_rate_ref) ? yaw_rate_ref : 0.0f;
+    rate = fmaxf(-SIMPLE_MANUAL_YAW_RATE_MAX, fminf(SIMPLE_MANUAL_YAW_RATE_MAX, rate));
+    balance_set_manual(0.0f, rate, active);
+    if (g_balance.manual_active) {
+        g_balance.spin_rate_external = 1;
+        g_balance.manual_spin_active = 1;
+        g_balance.manual_yaw = rate;
+        g_balance.manual_yaw_target = rate;
     }
 }
 
@@ -84,12 +136,23 @@ float balance_get_raw_zupt(void) { return g_balance.raw_zupt_dbg; }
 float balance_get_support(void) { return g_balance.support_dbg; }
 float balance_get_leg_load(void) { return g_balance.leg_load_dbg; }
 float balance_get_leg_swing(void) { return g_balance.leg_swing; }
-float balance_get_leg_extend(void) { return g_balance.leg_extend; }
+float balance_get_leg_swing_diff(void) { return g_balance.leg_swing_diff; }
+float balance_get_leg_extend(void) { return g_balance.leg_extend + g_balance.obstacle_retract; }
+float balance_get_obstacle_retract(void) { return g_balance.obstacle_retract; }
+float balance_get_obstacle_leg_retract(int right) { return g_balance.obstacle_leg_retract[right != 0]; }
+float balance_get_wheel_mismatch(int right) { return g_balance.slip_observer.wheel[right != 0].error; }
+int balance_get_wheel_obstacle(int right) { return g_balance.slip_observer.wheel[right != 0].active; }
+void balance_set_roll_allocation_error(float error)
+{
+    g_balance.roll_allocation_error = error;
+}
 float balance_get_leg_extend_manual(void) { return g_balance.leg_extend_manual; }
 float balance_get_leg_len(void) { return g_balance.leg_len_dbg; }
 void balance_set_leg_extend_manual(float v)
 {
-    g_balance.leg_extend_manual = clampf_local(v, -MANUAL_LEG_EXTEND_MAX, MANUAL_LEG_EXTEND_MAX);
+    g_balance.leg_extend_manual = clampf_local(v,
+                                                       -MANUAL_LEG_EXTEND_MAX,
+                                                        MANUAL_LEG_EXTEND_SHORT_MAX);
 }
 
 /* 空格键: 触发一次跳跃时序(下蹲->蹬伸->空中->落地)。 */
@@ -144,7 +207,11 @@ int balance_get_self_right_push(void)
 {
     return (fmodf(g_balance.self_right_t, 0.60f) < 0.35f) ? 1 : 0;
 }
-float balance_get_leg_side_extend(void) { return g_balance.leg_side_extend; }
+float balance_get_leg_side_extend(void)
+{
+    return g_balance.leg_side_extend + 0.5f *
+        (g_balance.obstacle_leg_retract[0] - g_balance.obstacle_leg_retract[1]);
+}
 void balance_set_leg_side_extend(float v)
 {
     g_balance.leg_side_extend = clampf_local(v, -0.26f, 0.26f);
@@ -168,6 +235,11 @@ float balance_get_wheel_imu_res(void) { return g_balance.wheel_imu_res_dbg; }
 float balance_get_leg_kin_v(void) { return g_balance.leg_kin_v_dbg; }
 float balance_get_pitch_kin_v(void) { return g_balance.pitch_kin_v_dbg; }
 float balance_get_wheel_body_v(void) { return g_balance.wheel_body_v_dbg; }
+float balance_get_slip_inertial_v(void) { return g_balance.slip_inertial_v; }
+float balance_get_slip_velocity_error(void) { return g_balance.slip_observer.velocity_error; }
+float balance_get_slip_yaw_error(void) { return g_balance.slip_observer.yaw_error; }
+float balance_get_slip_blend(void) { return g_balance.slip_blend; }
+float balance_get_slip_yaw_blend(void) { return g_balance.slip_yaw_blend; }
 float balance_get_yaw_error(void) { return g_balance.yaw_err_dbg; }
 
 typedef enum {
@@ -242,7 +314,8 @@ void balance_update_frame(const BalanceSensorFrame *frame, double dt, BalanceOut
     float leg_swing = BALANCE_LEG_SW_NOM;
     float speed_ref = 0.0f;
     float position = 0.0f;
-    balance_update(legacy, dt, &wheel_tau, &yaw_tau, &leg_swing, &speed_ref, &position);
+    balance_update_with_imu(legacy, dt, &wheel_tau, &yaw_tau, &leg_swing,
+                            &speed_ref, &position, frame->acc_y, frame->gyro_y);
 
     out->wheel_tau = wheel_tau;
     out->yaw_tau = yaw_tau;

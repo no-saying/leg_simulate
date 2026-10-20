@@ -22,7 +22,9 @@ int  balance_active(void);
 int  balance_get_manual_active(void);  // 1=GUI 手动驾驶模式激活
 int  balance_get_post_manual(void);    // 1=松手后停车刹车模式
 float balance_get_manual_v(void);      // 当前手动速度指令(斜坡化后)，m/s
+float balance_get_manual_v_target(void); // 手动速度目标(未经过斜坡/安全门控)，m/s
 float balance_get_manual_yaw(void);    // 当前手动转向指令(斜坡化后)，rad/s
+int  balance_get_manual_spin(void);    /* Spin intent, independent of height rate reduction. */
 float balance_get_hold_pos(void);      // 当前停车保持点位置，m
 float balance_get_neutral(void);      // 获取当前中立角
 int  balance_get_fallen(void);        // 1=已判定侧翻，轮扭矩已停机
@@ -38,7 +40,13 @@ float balance_get_raw_zupt(void);     // 调试: 瞬时零速更新判据
 float balance_get_support(void);      // 调试: 腿/惯性支撑置信度
 float balance_get_leg_load(void);     // 调试: 平均绝对腿执行器负载
 float balance_get_leg_swing(void);    // 调试: 腿摆指令偏置
+float balance_get_leg_swing_diff(void); // 叉腿转向: 左右腿摆差动指令(m)
 float balance_get_leg_extend(void);   // 调试: 共模腿伸长指令
+float balance_get_obstacle_retract(void);
+float balance_get_obstacle_leg_retract(int right);
+float balance_get_wheel_mismatch(int right);
+int balance_get_wheel_obstacle(int right);
+void balance_set_roll_allocation_error(float error);
 void balance_set_leg_extend_manual(float v); // GUI E/Q: 手动腿长目标
 float balance_get_leg_extend_manual(void);   // 调试: 当前手动腿长目标
 float balance_get_leg_len(void);      // 调试: 实测虚拟腿长(与辨识状态同定义)
@@ -68,6 +76,11 @@ float balance_get_wheel_imu_res(void);// 调试: |轮加速度-惯性加速度| 
 float balance_get_leg_kin_v(void);    // 调试: 腿运动带来的轮速修正量
 float balance_get_pitch_kin_v(void);  // 调试: 俯仰运动带来的轮速修正量
 float balance_get_wheel_body_v(void); // 调试: 补偿后的机体前向轮速
+float balance_get_slip_inertial_v(void);
+float balance_get_slip_velocity_error(void);
+float balance_get_slip_yaw_error(void);
+float balance_get_slip_blend(void);
+float balance_get_slip_yaw_blend(void);
 float balance_get_yaw_error(void);    // 调试: 偏航控制器使用的连续偏航误差
 
 /*
@@ -100,6 +113,7 @@ typedef struct {
     float left_wheel_tau;
     float right_wheel_tau;
     float lf_vel, lr_vel, rf_vel, rr_vel;
+    float acc_y, gyro_y;
 } BalanceSensorFrame;
 
 typedef struct {
@@ -131,6 +145,8 @@ void balance_update(const double *s, double dt,
  * 手动驾驶仍走平衡核心的速度环和偏航环，不会绕过俯仰稳定。
  */
 void balance_set_manual(float speed_ref, float yaw_rate_ref, int active);
+void balance_set_spin_rate_reference(float yaw_rate_ref, int active);
+void balance_set_turn_full_range(int enabled);
 
 #ifdef __cplusplus
 }

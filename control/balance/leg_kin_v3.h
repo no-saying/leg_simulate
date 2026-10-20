@@ -6,7 +6,7 @@
  *   lr = Left_rear_joint  (Left_Thigh)
  *   rf = Right_front_joint
  *   rr = Right_rear_joint
- * 虚拟坐标(单位 m, 世界系):
+ * 虚拟坐标(单位 m, 机体 base_link 局部坐标):
  *   sw = 轮轴相对基座的前向 x 偏移(前后摆)
  *   L  = 轮轴相对基座的竖直下探距离(-z, 腿长)
  * 名义位(全部驱动关节=0, CAD 装配位)标定值:
@@ -72,6 +72,21 @@ void leg_kin_v3_force_split(float tau_lf, float tau_lr,
                             float tau_rf, float tau_rr,
                             float *F_l, float *F_sw_l,
                             float *F_r, float *F_sw_r);
+
+/* 全行程闭链标定。旧线性接口保留给已用线性观测训练的跳跃策略。
+ * calibrated_side 的右腿输入为原始关节角，内部处理镜像。
+ * J 的行依次为 dL/dq、dsw/dq，列依次为 front/rear。 */
+void leg_kin_v3_calibrated_side(float front, float rear, int right,
+                                float *length, float *swing, float J[2][2]);
+void leg_kin_v3_forward_calibrated(float lf, float lr, float rf, float rr,
+                                   float *sw, float *leg_l, float *leg_r);
+void leg_kin_v3_velocities_calibrated(float lf, float lr, float rf, float rr,
+                                      float lfv, float lrv, float rfv, float rrv,
+                                      float *sw_dot, float *l_dot, float *r_dot);
+void leg_kin_v3_forces_calibrated(float lf, float lr, float rf, float rr,
+                                  float F_l, float F_sw_l, float F_r, float F_sw_r,
+                                  float *tau_lf, float *tau_lr,
+                                  float *tau_rf, float *tau_rr);
 
 #ifdef __cplusplus
 }

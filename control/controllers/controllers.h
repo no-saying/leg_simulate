@@ -22,10 +22,11 @@
 typedef struct {
     float wheel_tau;      /* 共模轮扭矩 Nm */
     float yaw_tau;        /* 差速轮扭矩 Nm */
-    float leg_swing;      /* 腿摆参考(相对名义角) rad */
-    float leg_len;        /* 腿长参考(相对名义) rad */
-    float leg_len_diff;   /* 腿长差参考 rad */
+    float leg_swing;      /* 腿摆绝对参考，v3 单位 m */
+    float leg_len;        /* 腿长伸缩增量，运行层叠加到 PID 参考 */
+    float leg_len_diff;   /* 左右腿伸缩差增量 */
     int   active;         /* 本控制器是否参与输出 */
+    int   leg_range_full; /* 完整 LQR 接管时允许全腿长辨识行程 */
 } ControlCmd;
 
 /* 控制器模式枚举(由 supervisor 输出) */

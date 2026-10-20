@@ -10,6 +10,7 @@
  * 这些函数不依赖具体控制环，可被俯仰环、速度环、偏航环共用。
  */
 #include "balance_internal.h"
+#include "vel_kf.h"
 
 #include <math.h>
 
@@ -116,6 +117,10 @@ SimpleOriginWindow make_simple_origin_window(float pos, float body_v, float pitc
 
 void reset_odom_filter(void)
 {
+    vel_kf_reset();
+    slip_observer_reset(&g_balance.slip_observer);
+    g_balance.slip_blend = g_balance.slip_yaw_blend = g_balance.slip_inertial_v = 0.0f;
+    g_balance.slip_gyro_ready = 0;
     /* 关闭平衡或重新启动时清空所有里程计/接触/调试状态，避免旧漂移带入新实验。 */
     g_balance.pos = 0.0f;
     g_balance.ekf_s = 0.0f;
@@ -129,8 +134,12 @@ void reset_odom_filter(void)
     g_balance.manual_yaw = 0.0f;
     g_balance.manual_yaw_target = 0.0f;
     g_balance.manual_active = 0;
+    g_balance.manual_stop_pending = 0;
+    g_balance.manual_stop_calm_t = 0.0f;
+    g_balance.manual_spin_active = 0;
     g_balance.hold_pos = 0.0f;
     g_balance.post_manual = 0;
+    g_balance.post_spin = 0;
     g_balance.post_manual_rest = 0;
     g_balance.runaway_t = 0.0f;
     g_balance.pitch_i = 0.0f;
@@ -169,9 +178,16 @@ void reset_odom_filter(void)
     g_balance.leg_extend = 0.0f;
     g_balance.leg_extend_manual = 0.0f;
     g_balance.leg_side_extend = 0.0f;
+    g_balance.obstacle_roll_hold = 0.0f;
+    g_balance.obstacle_retract = 0.0f;
+    for (int i = 0; i < 2; ++i) {
+        g_balance.obstacle_wheel_hold[i] = 0.0f;
+        g_balance.obstacle_leg_retract[i] = 0.0f;
+    }
     g_balance.roll_rate_filt = 0.0f;
     g_balance.roll_i = 0.0f;
     g_balance.leg_len_dbg = 0.0f;
+    g_balance.short_sw_blend = 0.0f;
     g_balance.idle_calm_t = 0.0f;
     g_balance.jump_active = 0;
     g_balance.jump_t = 0.0f;

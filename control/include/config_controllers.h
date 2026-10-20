@@ -30,20 +30,76 @@
 #define CTRL_LQR_MAX_DEG 3.0f        /* |pitch| < 3° 才允许 LQR 叠加 */
 #endif
 #ifndef CTRL_LQR_LEG_LEN_MIN
-#define CTRL_LQR_LEG_LEN_MIN -0.30f  /* LQR 分段覆盖的腿长下限 */
+/* 注意: 这个门槛比较的是 s->leg_len(实测绝对腿长, m)。
+ * 旧模型量纲是 ±0.2 的"腿长偏差", v3 实测腿长是 0.06~0.21m —— 旧值
+ * [-0.30,0.06] 在 v3 上永远不成立, 会让 LQR 永远不触发(已修正)。 */
+#define CTRL_LQR_LEG_LEN_MIN 0.060f  /* v3: LQR 分段覆盖的腿长下限 m */
 #endif
 #ifndef CTRL_LQR_LEG_LEN_MAX
-#define CTRL_LQR_LEG_LEN_MAX 0.06f   /* LQR 分段覆盖的腿长上限 */
+#define CTRL_LQR_LEG_LEN_MAX 0.210f  /* v3: LQR 分段覆盖的腿长上限 m */
 #endif
 #ifndef CTRL_LQR_MIX_GAIN
 /* LQR 扰动叠加增益(0=关闭)。旧模型 0.3 保留 LQR 增强同时稳态 pitch 稳定。
  * v3 新模型 LQR 分段模型尚未重新辨识, 先置 0 关闭。 */
 #if MODEL_V3
-#define CTRL_LQR_MIX_GAIN 0.0f
+#define CTRL_LQR_MIX_GAIN 0.3f
 #else
 #define CTRL_LQR_MIX_GAIN 0.3f
 #endif
 #endif
+#ifndef CTRL_LQR_FULL_ENABLE
+/* LQR 独占模式开关(1=小角度窗口内 LQR 完全替代三环的轮扭矩通道)。
+ * 需要辨识出的 u_ss/x_ss 配平, 见 controllers/lqr/lqr_*_models.h。 */
+#define CTRL_LQR_FULL_ENABLE 1   /* 启用时由 LQR 完整接管五个控制通道 */
+#endif
+
+#ifndef CTRL_LQR_P3_ENABLE
+/* 模态基 3 状态俯仰接管([pitch,pitch_rate,wheel_v] -> 共模轮扭矩)。
+ * 与 FULL 并存: 开这个则用 3 状态路径, 关则用旧的满阵 FULL 路径。 */
+#define CTRL_LQR_P3_ENABLE 0
+#endif
+
+#ifndef CTRL_LQR_FULL_PITCH_DEG
+/* 独占模式进入门槛 |pitch|, 单位 deg; 退出用 1.5x 做滞回。 */
+#define CTRL_LQR_FULL_PITCH_DEG 1.0f
+#endif
+
+#ifndef CTRL_LQR_FULL_LEG_MIN
+/* 保留为兼容旧配置；FULL LQR 不用腿长做启用门控，腿长只选择分段模型。 */
+#define CTRL_LQR_FULL_LEG_MIN 0.095f
+#endif
+
+#ifndef CTRL_LQR_FULL_LEG_MAX
+/* 同上，仅供旧脚本读取。 */
+#define CTRL_LQR_FULL_LEG_MAX 0.135f
+#endif
+
+#ifndef CTRL_LQR_FULL_WHEEL_MAX
+/* 独占模式共模轮扭矩限幅, 单位 Nm。 */
+#define CTRL_LQR_FULL_WHEEL_MAX 1.0f
+#endif
+
+/* Parking adjusts the pose reference; actuator feedback remains LQR. */
+#ifndef CTRL_LQR_PARK_SWING_KP
+#define CTRL_LQR_PARK_SWING_KP 0.045f
+#endif
+#ifndef CTRL_LQR_PARK_SWING_KI
+#define CTRL_LQR_PARK_SWING_KI 0.025f
+#endif
+#ifndef CTRL_LQR_PARK_TRIM_MAX
+#define CTRL_LQR_PARK_TRIM_MAX 0.020f
+#endif
+#ifndef CTRL_LQR_PARK_SWING_RATE
+#define CTRL_LQR_PARK_SWING_RATE 0.060f
+#endif
+
+#ifndef CTRL_LQR_FULL_EXT_MIN
+#define CTRL_LQR_FULL_EXT_MIN (-0.093f)
+#endif
+#ifndef CTRL_LQR_FULL_EXT_MAX
+#define CTRL_LQR_FULL_EXT_MAX 0.070f
+#endif
+
 #ifndef CTRL_LQR_STARTUP_DELAY
 #define CTRL_LQR_STARTUP_DELAY 2.0f  /* 启动后 LQR 延迟介入, 先让 PID 稳定 */
 #endif

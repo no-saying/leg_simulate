@@ -1,15 +1,19 @@
 #include "robot_control.h"
 
 #include <math.h>
+#include <stdio.h>
 #include <stdlib.h>
+#include <string.h>
 #include "balance.h"
 #include "controllers/controllers.h"
 #include "controllers/rl_jump/rl_jump_controller.h"
 #include "controllers/supervisor/controller_supervisor.h"
 #include "leg_kin_v3.h"
+#include "leg_allocation.h"
 #include "leg_t.h"
 #include "pid.h"
 #include "control_config.h"
+#include "attitude_rates.h"
 #include "wheel_t.h"
 
 /* ==========================================================================
@@ -39,6 +43,8 @@ typedef struct {
     float yaw_tau;               /* Nm，balance.c 最新输出的偏航差动扭矩。 */
     float wheel_speed_cap_hold;  /* s，输出层轮速超限持续时间。 */
     LowLevelControllers low;     /* 腿和保留轮环的有状态 PID 对象。 */
+    LegAllocation leg_allocation;
+    float leg_restore_calm;
 } RobotControlRuntime;
 
 typedef struct {
@@ -48,6 +54,44 @@ typedef struct {
 
 static RobotControlRuntime g_control;
 static int g_rl_active = 0;          /* RL 接管标志(供 supervisor 跳自救) */
+static int g_spin_enabled;
+static float g_spin_target[5], g_spin_action[5];
+static float g_spin_mix_audit[8];
+static float g_spin_reference_audit[12];
+
+void robot_control_get_spin_reference_audit(float state[12])
+{
+    memcpy(state, g_spin_reference_audit, sizeof(g_spin_reference_audit));
+}
+
+void robot_control_get_spin_mix_audit(float state[8])
+{
+    memcpy(state, g_spin_mix_audit, sizeof(g_spin_mix_audit));
+}
+
+void robot_control_set_spin_residual(const float action[5], int enabled)
+{
+    g_spin_enabled = enabled != 0;
+    balance_set_turn_full_range(g_spin_enabled);
+    for (int i = 0; i < 5; ++i) {
+        float a = enabled && action && isfinite(action[i]) ? action[i] : 0.0f;
+        g_spin_target[i] = fmaxf(-1.0f, fminf(1.0f, a));
+        if (!enabled) g_spin_action[i] = 0.0f;
+    }
+}
+
+void robot_control_get_spin_residual(float action[5])
+{
+    memcpy(action, g_spin_action, sizeof(g_spin_action));
+}
+
+void robot_control_get_leg_allocation(float state[4])
+{
+    state[0] = g_control.leg_allocation.left;
+    state[1] = g_control.leg_allocation.right;
+    state[2] = -g_control.leg_allocation.offset;
+    state[3] = g_control.leg_allocation.error;
+}
 
 void robot_control_set_rl_active(int on)
 {
@@ -59,6 +103,10 @@ void robot_control_reset(void)
     /* 清空低层控制器与运行时状态: ready=0 后下一帧会重新初始化
      * LegJoint PID/轮电机, wheel_speed_cap_hold 等也归零。 */
     memset(&g_control, 0, sizeof(g_control));
+    g_rl_active = 0;
+    robot_control_set_spin_residual(NULL, 0);
+    memset(g_spin_mix_audit, 0, sizeof(g_spin_mix_audit));
+    memset(g_spin_reference_audit, 0, sizeof(g_spin_reference_audit));
 }
 
 static float clampf_runtime(float x, float lo, float hi)
@@ -125,7 +173,7 @@ static BalanceSensorFrame make_balance_frame(const SensorState *s)
 {
     BalanceSensorFrame frame = {
         .pitch = (float)s->pitch,
-        .pitch_rate = (float)s->gyro[1],
+        .pitch_rate = sensor_pitch_rate(s),
         .roll = (float)s->roll,
         .roll_rate = (float)s->gyro[0],
         .left_wheel_vel = (float)s->lw_vel,
@@ -150,7 +198,9 @@ static BalanceSensorFrame make_balance_frame(const SensorState *s)
         .lf_vel = (float)s->lf_vel,
         .lr_vel = (float)s->lr_vel,
         .rf_vel = (float)s->rf_vel,
-        .rr_vel = (float)s->rr_vel
+        .rr_vel = (float)s->rr_vel,
+        .acc_y = (float)s->acc[1],
+        .gyro_y = (float)s->gyro[1]
     };
     return frame;
 }
@@ -199,12 +249,14 @@ static void copy_balance_debug(SensorState *s, const BalanceOutput *out)
 }
 
 static SidePair clamp_leg_extension(const SensorState *s,
-                                    double common, double differential)
+                                    double common, double differential,
+                                    int leg_range_full, double dt)
 {
     /* RL 跳跃期允许更大的腿长范围(训练动作幅度 ±0.30 超出常规 ±0.26),
      * 空闲/正常行驶仍按常规限位保护。 */
 #if MODEL_V3
-    float limit = (s->rl_state != 0) ? 0.06f : 0.04f;   /* v3: 单位 m */
+    float extend_limit = (s->rl_state != 0) ? 0.06f : MANUAL_LEG_EXTEND_MAX;
+    float retract_limit = (s->rl_state != 0) ? 0.06f : MANUAL_LEG_EXTEND_SHORT_MAX;
 #else
     float limit = (s->rl_state != 0) ? 0.35f : 0.26f;
 #endif
@@ -212,20 +264,57 @@ static SidePair clamp_leg_extension(const SensorState *s,
         .left = (float)(common + differential),
         .right = (float)(common - differential)
     };
+#if MODEL_V3
+    float lo = leg_range_full ? CTRL_LQR_FULL_EXT_MIN : -extend_limit;
+    float hi = leg_range_full ? CTRL_LQR_FULL_EXT_MAX : retract_limit;
+#if LEG_ROLL_ALLOCATION_ENABLE
+    /* Keep attained clearance across brief contact loss. Clearing it on an
+     * airborne estimate would step both references back to the short stop. */
+    int stance = s->rl_state == 0 && balance_get_jump_phase() == 0 &&
+                 !balance_get_self_right_active() && !balance_get_fallen() && balance_active();
+    int turning = balance_get_manual_spin() || fabsf(balance_get_manual_yaw()) >= 0.05f;
+    int calm = !turning && !s->airborne && !s->impact &&
+               fabs(s->est_v) < 0.08 && fabs(s->roll) < 0.02 && fabs(s->pitch) < 0.035 &&
+               fabs(s->gyro[0]) < 0.15 && fabs(s->gyro[1]) < 0.15 && fabs(s->gyro[2]) < 0.15;
+    if (!stance || !calm)
+        g_control.leg_restore_calm = 0.0f;
+    else
+        g_control.leg_restore_calm = fminf(0.3f, g_control.leg_restore_calm + (float)dt);
+    int retain_clearance = turning || g_control.leg_restore_calm < 0.3f;
+    leg_allocation_step(&g_control.leg_allocation, (float)common, (float)differential,
+                        lo, hi, stance, retain_clearance, (float)dt,
+                        LEG_ROLL_HEIGHT_RATE, LEG_ROLL_HEIGHT_RESTORE_RATE);
+    ext.left = g_control.leg_allocation.left;
+    ext.right = g_control.leg_allocation.right;
+    balance_set_roll_allocation_error(g_control.leg_allocation.error);
+#else
+    (void)dt;
+    ext.left = clampf_runtime(ext.left, lo, hi);
+    ext.right = clampf_runtime(ext.right, lo, hi);
+    g_control.leg_allocation.left = ext.left;
+    g_control.leg_allocation.right = ext.right;
+    balance_set_roll_allocation_error(0.0f);
+#endif
+#else
+    (void)leg_range_full;
+    (void)dt;
     ext.left = clampf_runtime(ext.left, -limit, limit);
     ext.right = clampf_runtime(ext.right, -limit, limit);
+#endif
     return ext;
 }
 
-static void update_leg_servos(LowLevelControllers *low, SensorState *s, float swing_ref)
+static void update_leg_servos(LowLevelControllers *low, SensorState *s,
+                              float swing_ref, int leg_range_full, double dt)
 {
-    SidePair ext = clamp_leg_extension(s, s->leg_extend, s->leg_side_extend);
+    SidePair ext = clamp_leg_extension(s, s->leg_extend, s->leg_side_extend,
+                                       leg_range_full || g_spin_enabled, dt);
 #if MODEL_V3
+    (void)low;
     /* v3: 直接锁虚拟腿长 L(保持车高), 腿摆 sw 自由。
      * 直接锁关节角会与平衡冲突(轻闭链机构), 锁 L 只提供竖直支撑力。
      * 控制量仅用于调试打印, 实际输出在下方 v3 分支计算。 */
     float lf_r = 0.0f, lr_r = 0.0f, rf_r = 0.0f, rr_r = 0.0f;
-    (void)ext;
 #else
     float lf_r = swing_ref - ext.left;
     float lr_r = 0.4f - swing_ref - ext.left;
@@ -333,53 +422,99 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
      *   tauL = -KP_L*(L-L_NOM) - KD_L*Ldot   (虚拟竖直力)
      *   关节 ctrl = J_L*tauL / LEG_GAIN(50) */
     float leg_sw_dbg, leg_l, leg_r;
-    leg_kin_v3_forward((float)s->lf_pos, (float)s->lr_pos,
-                       (float)s->rf_pos, (float)s->rr_pos,
-                       &leg_sw_dbg, &leg_l, &leg_r);
+    leg_kin_v3_forward_calibrated((float)s->lf_pos, (float)s->lr_pos,
+                                  (float)s->rf_pos, (float)s->rr_pos,
+                                  &leg_sw_dbg, &leg_l, &leg_r);
     float sw_dot_dbg, l_dot, r_dot;
-    leg_kin_v3_velocities((float)s->lf_vel, (float)s->lr_vel,
-                          (float)s->rf_vel, (float)s->rr_vel,
-                          &sw_dot_dbg, &l_dot, &r_dot);
-    /* 腿长目标用中位(重心在轮轴正上方), 而非名义装配位。
+    leg_kin_v3_velocities_calibrated((float)s->lf_pos, (float)s->lr_pos,
+                                     (float)s->rf_pos, (float)s->rr_pos,
+                                     (float)s->lf_vel, (float)s->lr_vel,
+                                     (float)s->rf_vel, (float)s->rr_vel,
+                                     &sw_dot_dbg, &l_dot, &r_dot);
+    /* 腿长目标以中位为基准, ext>0 表示收腿/降低, ext<0 表示伸腿/升高。
      * 腿长伺服保持满刚度支撑(弱化会让腿塌陷, 实测 L 掉到 0.09)。 */
-    float tau_l = -(LEG_V3_SERVO_KP * (leg_l - LEG_V3_L_MID)
-                    + LEG_V3_SERVO_KD * l_dot);
-    float tau_r = -(LEG_V3_SERVO_KP * (leg_r - LEG_V3_L_MID)
-                    + LEG_V3_SERVO_KD * r_dot);
+    float L_ref_l = LEG_V3_L_MID - ext.left;
+    float L_ref_r = LEG_V3_L_MID - ext.right;
+    /* 全行程保持 1200/60 支撑刚度。纯 PID 端点测试中把它降到
+     * 800/30 或 550/20 会让原本稳定的短腿工作点也持续漂移。 */
+    static int leg_gain_ready = 0;
+    static float leg_kp_cfg = LEG_V3_SERVO_KP;
+    static float leg_kd_cfg = LEG_V3_SERVO_KD;
+    if (!leg_gain_ready) {
+        const char *ekp = getenv("LEG_LEN_KP");
+        const char *ekd = getenv("LEG_LEN_KD");
+        if (ekp) leg_kp_cfg = (float)atof(ekp);
+        if (ekd) leg_kd_cfg = (float)atof(ekd);
+        leg_gain_ready = 1;
+    }
+    float leg_kp = leg_kp_cfg;
+    float leg_kd = leg_kd_cfg;
+    float tau_l = -(leg_kp * (leg_l - L_ref_l) + leg_kd * l_dot);
+    float tau_r = -(leg_kp * (leg_r - L_ref_r) + leg_kd * r_dot);
+    static int leg_len_servo_off = -1;
+    if (leg_len_servo_off < 0)
+        leg_len_servo_off = getenv("LEG_LEN_SERVO_OFF") ? atoi(getenv("LEG_LEN_SERVO_OFF")) : 0;
+    if (leg_len_servo_off) {
+        tau_l = 0.0f;
+        tau_r = 0.0f;
+    }
     /* 腿摆 sw 软锁: 目标 = balance 输出的 swing_ref(含速度/位置环的
      * 腿摆指令, 加减速时腿前后摆辅助; 由 leg_kin_v3_forward 保证单位一致)。
      * 死区内自由(平衡依赖腿摆柔性), 死区外拉回防过度漂移。 */
-    float sw_l = LEG_V3_SW_NOM + LEG_V3_J_S0 * (float)s->lf_pos
-                                + LEG_V3_J_S1 * (float)s->lr_pos;
-    float sw_r = LEG_V3_SW_NOM - LEG_V3_J_S0 * (float)s->rf_pos
-                                - LEG_V3_J_S1 * (float)s->rr_pos;
-    /* 腿摆参考直接取 balance 输出的 swing_ref(含手动 W/S 的腿摆指令)。
-     * A/D 纯转向时 swing_ref=SW_NOM -> 腿锁中位, 只差速转;
-     * W/S 时 swing_ref 随速度误差前后摆 -> 平衡环轮子驱动前进, pitch 恒 0。 */
-    float sw_ref_l = swing_ref;
-    float sw_ref_r = swing_ref;
+    float sw_l, sw_r, side_len, jl[2][2], jr[2][2];
+    leg_kin_v3_calibrated_side((float)s->lf_pos, (float)s->lr_pos, 0,
+                                &side_len, &sw_l, jl);
+    leg_kin_v3_calibrated_side((float)s->rf_pos, (float)s->rr_pos, 1,
+                                &side_len, &sw_r, jr);
+    /* 腿摆参考直接取 balance 输出的 swing_ref(含手动 W/S 的腿摆指令),
+     * 再叠加"叉腿"差动: A/D 原地转向时左右腿摆参考反相 ±leg_swing_diff,
+     * 把轮轴线在水平面内拧一个角度产生偏航(见 balance_step_pitch_yaw.inc)。
+     * W/S 直线行驶时 diff=0, 左右同相前后摆 -> 平衡环轮子驱动前进。 */
+    float sw_diff_ref = leg_range_full ? 0.0f : balance_get_leg_swing_diff();
+    float sw_ref_l = swing_ref + sw_diff_ref;
+    float sw_ref_r = swing_ref - sw_diff_ref;
     float e_sw_l = sw_l - sw_ref_l;
     float e_sw_r = sw_r - sw_ref_r;
-    /* 自动静止用软腿(大死区+弱刚度): 腿在死区内自由, 停在自然平衡点
-     * (sw≈+0.009), 静止稳定不漂移。手动驾驶用硬腿(小死区+强刚度+
-     * 左右各自阻尼): 腿锁位不晃动, 差模(剪刀)摆动也被阻尼。 */
-    /* 前进/后退(W/S)和松手刹车时腿锁位(防摆腿乱动);
-     * A/D 纯转向时腿恢复软模式: 闭链腿会吸收 yaw-pitch 耦合,
-     * 硬腿会把耦合全传给车身 -> pitch 扰动 -> 翻车(实测)。 */
-    int manual_leg_stiff = (balance_get_manual_active() &&
-                            fabsf(balance_get_manual_v()) >= 0.05f) ||
-                           balance_get_post_manual();
-    float sw_kp = manual_leg_stiff ? LEG_V3_SW_KP : 300.0f;
-    float sw_kd = manual_leg_stiff ? LEG_V3_SW_KD : 10.0f;
-    float sw_dead = manual_leg_stiff ? LEG_V3_SW_DEAD : 0.02f;
+    /* LQR was identified with the automatic servo gain schedule. Manual
+     * keys must not change that plant while LQR owns the leg references. */
+    int manual_leg_stiff = !leg_range_full &&
+                          (balance_get_manual_active() || balance_get_post_manual());
+    /* 手动小幅摆腿: 死区 0.001 让 ±0.003 指令不被吞; 刚度保持 450
+     * (1200 会让闭链猛抽超调, 0.006 命令实际摆到 -0.015 -> 翻车)。 */
+    /* 自动腿摆随实测腿长连续调度。长腿端 150/5 在 0.18m 附近仍会
+     * 漂移；纯 PID 扰动测试中 100/3 可恢复。手动硬腿保持原参数。 */
+    float long_leg_blend = clampf_runtime((0.5f * (leg_l + leg_r) - 0.136f) / 0.014f,
+                                           0.0f, 1.0f);
+    float deep_long_blend = clampf_runtime((0.5f * (leg_l + leg_r) - 0.160f) / 0.015f,
+                                           0.0f, 1.0f);
+    float deep_short_blend = clampf_runtime((0.054f - 0.5f * (leg_l + leg_r)) / 0.004f,
+                                            0.0f, 1.0f);
+    float sw_kp = manual_leg_stiff ? LEG_V3_SW_KP
+                                   : 300.0f - 150.0f * long_leg_blend - 50.0f * deep_long_blend
+                                     + 150.0f * deep_short_blend;
+    float sw_kd = manual_leg_stiff ? LEG_V3_SW_KD
+                                   : 10.0f - 5.0f * long_leg_blend - 2.0f * deep_long_blend
+                                     + 8.0f * deep_short_blend;
+    /* 自动模式也必须跟随配平参考。旧的 20 mm 死区远大于静态配平
+     * 偏差(约 20~25 mm)，会让腿长期停在前摆位置，扰动后继续向前推。
+     * 保留 5 mm 机械噪声死区，避免高频抖动但不吞掉配平误差。 */
+    float sw_dead = (leg_range_full || manual_leg_stiff) ? 0.001f
+                    : 0.005f - 0.004f * deep_short_blend;
+    g_spin_reference_audit[3] = sw_ref_l;
+    g_spin_reference_audit[4] = sw_ref_r;
+    g_spin_reference_audit[5] = sw_dead;
+    g_spin_reference_audit[6] = sw_kp;
+    g_spin_reference_audit[7] = sw_kd;
+    g_spin_reference_audit[8] = sw_l;
+    g_spin_reference_audit[9] = sw_r;
     float sw_l_dot, sw_r_dot;
     if (manual_leg_stiff) {
         /* 左右腿各自的速度阻尼(不是平均速度): 差模(剪刀)摆动也被阻尼,
          * 否则转向时轮子反作用力会把左右腿剪开, 高频晃动(用户实测)。 */
-        sw_l_dot = LEG_V3_J_S0 * (float)s->lf_vel
-                 + LEG_V3_J_S1 * (float)s->lr_vel;
-        sw_r_dot = -LEG_V3_J_S0 * (float)s->rf_vel
-                  - LEG_V3_J_S1 * (float)s->rr_vel;
+        sw_l_dot = jl[1][0] * (float)s->lf_vel
+                 + jl[1][1] * (float)s->lr_vel;
+        sw_r_dot = jr[1][0] * (float)s->rf_vel
+                  + jr[1][1] * (float)s->rr_vel;
     } else {
         sw_l_dot = sw_dot_dbg;
         sw_r_dot = sw_dot_dbg;
@@ -396,9 +531,24 @@ static void update_leg_servos(LowLevelControllers *low, SensorState *s, float sw
         e_sw_r_dead = 0.0f;
     float tau_sw_l = -(sw_kp * e_sw_l_dead + sw_kd * sw_l_dot);
     float tau_sw_r = -(sw_kp * e_sw_r_dead + sw_kd * sw_r_dot);
+    if (leg_dbg2 >= 3) {
+        static int leg_dbg3_cnt = 0;
+        if (++leg_dbg3_cnt >= 500) {
+            leg_dbg3_cnt = 0;
+            printf("[LegForce] t=%.2f L=%.4f/%.4f Lref=%.4f/%.4f "
+                   "Ld=%.3f/%.3f tauL=%.2f/%.2f sw=%.4f/%.4f "
+                   "swref=%.4f/%.4f swd=%.3f/%.3f tauSW=%.2f/%.2f\n",
+                   s->sim_time, leg_l, leg_r, L_ref_l, L_ref_r,
+                   l_dot, r_dot, tau_l, tau_r, sw_l, sw_r,
+                   sw_ref_l, sw_ref_r, sw_l_dot, sw_r_dot,
+                   tau_sw_l, tau_sw_r);
+        }
+    }
     float tau_lf, tau_lr, tau_rf, tau_rr;
-    leg_kin_v3_forces(tau_l, tau_sw_l, tau_r, tau_sw_r,
-                      &tau_lf, &tau_lr, &tau_rf, &tau_rr);
+    leg_kin_v3_forces_calibrated((float)s->lf_pos, (float)s->lr_pos,
+                                 (float)s->rf_pos, (float)s->rr_pos,
+                                 tau_l, tau_sw_l, tau_r, tau_sw_r,
+                                 &tau_lf, &tau_lr, &tau_rf, &tau_rr);
     s->ctrl[0] = clampf_runtime(tau_lf / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
     s->ctrl[1] = clampf_runtime(tau_lr / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
     s->ctrl[3] = clampf_runtime(tau_rf / LEG_V3_LEG_GAIN, -10.0f, 10.0f);
@@ -490,13 +640,28 @@ static float apply_manual_speed_cap(SensorState *s, float pitch_mix)
     return pitch_mix;
 }
 
-static void mix_wheel_outputs(SensorState *s, double dt)
+static void mix_wheel_outputs(SensorState *s, double dt, int spin_residual)
 {
     float pitch_mix = WHEEL_MIX_BALANCE_WEIGHT * g_control.pitch_tau;
     float yaw_mix = WHEEL_MIX_YAW_WEIGHT * g_control.yaw_tau;
+    yaw_mix *= 1.0f - 0.40f * balance_get_slip_yaw_blend();
+    g_spin_mix_audit[0] = pitch_mix;
+    g_spin_mix_audit[1] = yaw_mix;
+    g_spin_mix_audit[2] = spin_residual ? 0.20f * g_spin_action[3] : 0.0f;
+    g_spin_mix_audit[3] = spin_residual ? 0.15f * g_spin_action[4] : 0.0f;
 
+    /* Physical wheel Nm after mixer weights; output protections still apply. */
+    if (spin_residual) {
+        pitch_mix += 0.20f * g_spin_action[3];
+        yaw_mix += 0.15f * g_spin_action[4];
+    }
+
+    g_spin_mix_audit[4] = pitch_mix;
     pitch_mix = apply_output_speed_cap(s, dt, pitch_mix);
     pitch_mix = apply_manual_speed_cap(s, pitch_mix);
+    g_spin_mix_audit[5] = pitch_mix;
+    g_spin_mix_audit[6] = pitch_mix - yaw_mix;
+    g_spin_mix_audit[7] = pitch_mix + yaw_mix;
 
     /* A/D 纯转向: 差速轮速环 + 俯仰 PD。
      * 先用环境变量定位正确轮速方向:
@@ -508,7 +673,7 @@ static void mix_wheel_outputs(SensorState *s, double dt)
         const char *e = getenv("TURN_BRANCH");
         turn_branch = e ? atoi(e) : 0;
     }
-    if (turn_branch &&
+    if (turn_branch && !spin_residual &&
         balance_get_manual_active() &&
         fabsf(balance_get_manual_v()) < 0.05f &&
         fabsf(balance_get_manual_yaw()) > 0.10f) {
@@ -562,6 +727,23 @@ static void mix_wheel_outputs(SensorState *s, double dt)
 #else
     s->ctrl[5] = -(pitch_mix + yaw_mix) / 10.0;
 #endif
+
+
+    static int dbg3 = -1;
+    static int dbg3_cnt = 0;
+    if (dbg3 < 0) dbg3 = getenv("MIXDBG") ? atoi(getenv("MIXDBG")) : 0;
+    if (dbg3) {
+        dbg3_cnt++;
+        if (dbg3_cnt >= 200) {
+            dbg3_cnt = 0;
+            printf("[Mix] t=%.2f pt=%+.2f yt=%+.2f c2=%+.3f c5=%+.3f "
+                   "mv=%+.2f my=%+.2f sw=%+.3f\n",
+                   s->sim_time, g_control.pitch_tau, g_control.yaw_tau,
+                   s->ctrl[2], s->ctrl[5],
+                   balance_get_manual_v(), balance_get_manual_yaw(),
+                   s->leg_swing);
+        }
+    }
 }
 
 void robot_control_step(SensorState *s, double dt)
@@ -598,8 +780,35 @@ void robot_control_step(SensorState *s, double dt)
         s->leg_extend += cmd.leg_len;
         s->leg_side_extend += cmd.leg_len_diff;
     }
-    update_leg_servos(&g_control.low, s, cmd.leg_swing);
-    mix_wheel_outputs(s, dt);
+    s->leg_swing = cmd.leg_swing;
+    g_spin_reference_audit[0] = cmd.leg_swing;
+    g_spin_reference_audit[1] = 0.0f;
+    g_spin_reference_audit[10] = balance_get_manual_v_target();
+    g_spin_reference_audit[11] = balance_get_neutral();
+    if (g_spin_enabled && !rj.active) {
+        float alpha = 1.0f - expf(-(float)dt / 0.04f);
+        for (int i = 0; i < 5; ++i) {
+            float step = alpha * (g_spin_target[i] - g_spin_action[i]);
+            float limit = 10.0f * (float)dt;
+            g_spin_action[i] += clampf_runtime(step, -limit, limit);
+        }
+        float left = 0.01f * (g_spin_action[1] + g_spin_action[0]);
+        float right = 0.01f * (g_spin_action[1] - g_spin_action[0]);
+        /* An obstacle reflex can retract either leg without RL extending it. */
+        if (balance_get_obstacle_leg_retract(0) > 0.0001f) left = fminf(left, 0.0f);
+        if (balance_get_obstacle_leg_retract(1) > 0.0001f) right = fminf(right, 0.0f);
+        s->leg_extend -= 0.5f * (left + right);
+        s->leg_side_extend -= 0.5f * (left - right);
+        s->leg_swing += 0.005f * g_spin_action[2];
+        g_spin_reference_audit[1] = 0.005f * g_spin_action[2];
+    }
+    g_spin_reference_audit[2] = (float)s->leg_swing;
+    update_leg_servos(&g_control.low, s, (float)s->leg_swing, cmd.leg_range_full, dt);
+    mix_wheel_outputs(s, dt, g_spin_enabled && !rj.active);
+    if (g_spin_enabled && !rj.active) {
+        s->ctrl[2] = clampf_runtime((float)s->ctrl[2], -10.0f, 10.0f);
+        s->ctrl[5] = clampf_runtime((float)s->ctrl[5], -10.0f, 10.0f);
+    }
 
     /* 临时调试: RL_LEG_DBG=1 时每 0.5s 打印一次腿关节位置与虚拟坐标,
      * 用于测量部署时三环作用下的腿位包络(校准训练随机化范围)。 */

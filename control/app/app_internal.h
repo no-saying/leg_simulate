@@ -34,6 +34,7 @@ typedef struct {
     mjData *data;
     SensorState state;
     int auto_balance_done;
+    mjtNum slope_quat[4];
 } Simulation;
 
 /* GUI 运行状态: 相机/渲染/窗口/按键 */

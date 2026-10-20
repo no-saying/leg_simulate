@@ -4,6 +4,7 @@
 
 #include <math.h>
 #include <stdio.h>
+#include <stdlib.h>
 
 /* ==========================================================================
  * 传感器安装矩阵补偿(v3 串联腿闭链模型)
@@ -12,7 +13,8 @@
  * 立起后轮轴沿世界 -y)。因此 base_link 在静止站立时世界姿态为
  * R_bake = R_x(+90°), 控制器约定(与旧模型一致)要求:
  *   - 站立时 pitch/roll/yaw = 0 (控制系 = 世界系);
- *   - pitch_rate 绕世界 y, roll_rate 绕世界 x, yaw_rate 绕世界 z。
+ *   - 安装补偿后的 gyro 仍是机体系读数；只有零姿态时轴与世界系重合。
+ *     俯仰角速度由 attitude_rates.h 换算，避免侧倾时混入偏航运动。
  * 补偿:
  *   q_ctrl = q_body ⊗ q_bake^{-1}, q_bake^{-1} = conj(R_x(+90°))
  *   ω_ctrl = R_bake·ω_body   -> (x, -z, y)
@@ -133,7 +135,8 @@ void sensors_set_initial_pose(const mjModel *m, mjData *d)
             int j = mj_name2id(m, mjOBJ_JOINT, mid[k]);
             if (j >= 0 && i == m->jnt_qposadr[j]) { is_mid = 1; break; }
         }
-        if (!is_mid) d->qpos[i] = 0.0;
+        /* Preserve the initial positions and unit quaternions of scene objects. */
+        if (!is_mid) d->qpos[i] = m->qpos0[i];
     }
     for (int i = 0; i < m->nv; i++) d->qvel[i] = 0.0;
 }
@@ -168,7 +171,19 @@ int sensors_read(const mjModel *m, mjData *d, SensorState *s)
     for (int i = 0; i < 3; i++) s->acc[i] = (float)acc_ctrl[i];
     s->acc_mag = sqrt(s->acc[0] * s->acc[0] + s->acc[2] * s->acc[2]);
 
-    s->pitch = quat_to_pitch(q_ctrl);
+    /* 调试/鲁棒性验证: 注入 IMU 安装角误差(度)。模拟装配倾斜 —— 控制器
+     * 看到的 pitch 与实际姿态差一个固定偏置。 */
+    {
+        static int tilt_ready = 0;
+        static double tilt_off = 0.0;
+        if (!tilt_ready) {
+            const char *e = getenv("IMU_TILT_DEG");
+            tilt_off = e ? atof(e) * 3.14159265358979 / 180.0 : 0.0;
+            tilt_ready = 1;
+        }
+        if (tilt_off != 0.0) s->pitch = quat_to_pitch(q_ctrl) + tilt_off;
+        else s->pitch = quat_to_pitch(q_ctrl);
+    }
     s->roll = quat_to_roll(q_ctrl);
     s->yaw = quat_to_yaw(q_ctrl);
     s->yaw_rate = s->gyro[2];

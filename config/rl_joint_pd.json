@@ -1,0 +1,35 @@
+{
+  "schema_version": 1,
+  "control_mode": "leg_position_pd_wheel_velocity_p",
+  "gains": {
+    "leg_kp": 120.0,
+    "leg_kd": 1.6,
+    "wheel_kv": 0.5
+  },
+  "units": {
+    "leg_kp": "Nm/rad",
+    "leg_kd": "Nm*s/rad",
+    "wheel_kv": "Nm*s/rad"
+  },
+  "servo_period_s": 0.001,
+  "actuator_order": [
+    "Left_front_joint", "Left_rear_joint", "Left_Wheel_joint",
+    "Right_front_joint", "Right_rear_joint", "Right_Wheel_joint"
+  ],
+  "torque_limits_nm": [60.0, 60.0, 10.0, 60.0, 60.0, 10.0],
+  "torque_rate_limits_nm_s": [300.0, 300.0, 40.0, 300.0, 300.0, 40.0],
+  "validation": {
+    "scope": "simulated fixed-base actuator tracking; not whole-robot balance or hardware gains",
+    "initial_leg_lengths_m": [0.047, 0.060, 0.085, 0.117, 0.150, 0.180, 0.198],
+    "unreached_requested_length_m": 0.210,
+    "unreached_reason": "Requested 210 mm not reachable at the bench swing and joint bounds; 198 mm was tested instead",
+    "leg_step_rad": 0.04,
+    "upward_support_load_n_per_wheel": [0.0, 11.8995],
+    "wheel_speed_targets_rad_s": [0.0, -2.0, 2.0, -10.0, 10.0],
+    "wheel_disturbance_torque_nm": [0.0, 0.05],
+    "wheel_extended_duration_s": 5.0,
+    "report": "logs/rl_training/joint_pd_bench_selected_20261018.json",
+    "screening_report": "logs/rl_training/joint_pd_wheel_extended_20261018.json",
+    "model_sha256": "15c2b93f22f3a630811452c4f7a7f32a939ee381cd3ed4387bb9a84f3f7bc3c3"
+  }
+}

@@ -7,5 +7,6 @@ control/sim/*.o
 control/runtime/*.o
 control/*.bak
 __pycache__/
+.venv-mjbatch/
 *.log
 *.png

@@ -10,12 +10,61 @@
  */
 #include "app_internal.h"
 
+#include <math.h>
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
 
 #include "balance.h"
 #include "robot_control.h"
+#include "controllers/supervisor/controller_supervisor.h"
+
+static int configure_test_slope(Simulation *sim)
+{
+    sim->slope_quat[0] = 1.0;
+    const char *value = getenv("SIM_SLOPE_DEG");
+    if (!value || !*value) return 1;
+    char *end;
+    double degrees = strtod(value, &end);
+    if (*end || !isfinite(degrees) || fabs(degrees) > 20.0) {
+        fprintf(stderr, "ERROR: SIM_SLOPE_DEG must be between -20 and 20\n");
+        return 0;
+    }
+    int floor = mj_name2id(sim->model, mjOBJ_GEOM, "floor");
+    if (floor < 0 || sim->model->geom_type[floor] != mjGEOM_PLANE ||
+        sim->model->geom_bodyid[floor] != 0) {
+        fprintf(stderr, "ERROR: slope scene requires a world floor plane\n");
+        return 0;
+    }
+    double half_angle = degrees * 3.141592653589793 / 360.0;
+    sim->slope_quat[0] = cos(half_angle);
+    sim->slope_quat[2] = sin(half_angle);
+    mjtNum original[4];
+    mju_copy4(original, sim->model->geom_quat + 4*floor);
+    mju_mulQuat(sim->model->geom_quat + 4*floor, sim->slope_quat, original);
+    sim->model->geom_sameframe[floor] = mjSAMEFRAME_NONE;
+    fprintf(stderr, "[Terrain] slope=%.1f deg (world Y rotation)\n", degrees);
+    return 1;
+}
+
+static void set_scene_initial_pose(Simulation *sim)
+{
+    sensors_set_initial_pose(sim->model, sim->data);
+    if (sim->slope_quat[2] == 0.0) return;
+    int floor = mj_name2id(sim->model, mjOBJ_GEOM, "floor");
+    const mjtNum *origin = sim->model->geom_pos + 3*floor;
+    /* Rotate all free objects about the floor origin, preserving clearance. */
+    for (int j = 0; j < sim->model->njnt; ++j) {
+        if (sim->model->jnt_type[j] != mjJNT_FREE) continue;
+        mjtNum *pose = sim->data->qpos + sim->model->jnt_qposadr[j];
+        mjtNum relative[3], rotated[3], original[4];
+        mju_sub3(relative, pose, origin);
+        mju_rotVecQuat(rotated, relative, sim->slope_quat);
+        mju_add3(pose, rotated, origin);
+        mju_copy4(original, pose + 3);
+        mju_mulQuat(pose + 3, sim->slope_quat, original);
+    }
+}
 
 int simulation_load(Simulation *sim, const char *xml_path)
 {
@@ -28,6 +77,11 @@ int simulation_load(Simulation *sim, const char *xml_path)
         return 0;
     }
     fprintf(stderr, "XML loaded\n");
+    if (!configure_test_slope(sim)) {
+        mj_deleteModel(sim->model);
+        sim->model = NULL;
+        return 0;
+    }
 
     sim->data = mj_makeData(sim->model);
     if (!sim->data) {
@@ -38,7 +92,7 @@ int simulation_load(Simulation *sim, const char *xml_path)
     }
     fprintf(stderr, "Data created\n");
 
-    sensors_set_initial_pose(sim->model, sim->data);
+    set_scene_initial_pose(sim);
     mj_forward(sim->model, sim->data);
     fprintf(stderr, "Init done\n");
     return 1;
@@ -75,8 +129,7 @@ void maybe_auto_enable_balance(Simulation *sim)
 
 void simulation_reset(Simulation *sim)
 {
-    mjData *d = sim->data;
-    sensors_set_initial_pose(sim->model, d);
+    set_scene_initial_pose(sim);
     mj_forward(sim->model, sim->data);
 
     sim->state.step_count = 0;
@@ -85,8 +138,14 @@ void simulation_reset(Simulation *sim)
     memset(&sim->state.ctrl, 0, sizeof(sim->state.ctrl));
 
     /* 平衡核心状态复位: 关/开一次，清空里程计、接触滞回和侧翻标志。 */
-    if (balance_active()) balance_toggle();
+    balance_reset_state();
+    balance_init();
     balance_toggle();
+    /* Reset all stateful control layers together with the MuJoCo state.
+     * Otherwise a reset can resume with the previous LQR hold output or
+     * supervisor blend state. */
+    robot_control_reset();
+    controller_supervisor_init();
     g_key_w = g_key_a = g_key_s = g_key_d = 0;
     g_key_extend = g_key_shorten = 0;
     g_manual_leg_target = 0.0f;
@@ -99,8 +158,7 @@ static void apply_body_lock_if_requested(Simulation *sim, int body_lock)
 {
     if (!body_lock) return;
 
-    mjData *d = sim->data;
-    sensors_set_initial_pose(sim->model, d);
+    set_scene_initial_pose(sim);
 }
 
 void apply_open_loop_override(SensorState *s)

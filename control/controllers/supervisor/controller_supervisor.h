@@ -3,7 +3,7 @@
  * ================================================================
  * 唯一负责"何时用哪个控制器"的模块:
  *   - 大角度(|pitch| >= ENERGY_ENTER_DEG): 能量整形把车摆回平衡区
- *   - 小角度且腿长在 LQR 分段覆盖内: PID 基线 + LQR 扰动叠加
+ *   - 小角度且模型通过验收: LQR 接管，腿长只选择线性化参数段
  *   - 其它情况(启动/扰动/腿长越界): 纯 PID 三环兜底
  *
  * 切换带滞回(enter/exit 阈值不同), 避免边界抖动。
@@ -24,11 +24,14 @@ void controller_supervisor_update(const SensorState *s, double dt, ControlCmd *o
 /* RL 接管期间置 1: supervisor 跳过"翻倒检测"自救(部署/训练一致),
  * 三环/LQR 轮子仍正常工作, 只有自救状态机不介入。 */
 void controller_supervisor_set_rl_busy(int on);
+/* Permission only: posture gates and the ordinary transition ramp still apply. */
+void controller_supervisor_set_lqr_enabled(int enabled);
 
 /* 当前模式(调试/日志) */
 CtrlMode controller_supervisor_mode(void);
 
 /* 当前自救阶段(调试/日志): 0=正常, 1=检测, 2=摆腿, 3=撑地推回, 4=回正确认 */
 int controller_supervisor_phase(void);
+float controller_supervisor_lqr_mix(void);
 
 #endif /* CONTROLLER_SUPERVISOR_H */

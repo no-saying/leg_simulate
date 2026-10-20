@@ -26,6 +26,13 @@ static void apply_camera_preset(GuiRuntime *gui);
 static int gui_init(GuiRuntime *gui, const mjModel *model)
 {
     memset(gui, 0, sizeof(*gui));
+    gui->track_body_id = mj_name2id(model, mjOBJ_BODY, "base_link");
+    if (gui->track_body_id < 0)
+        gui->track_body_id = mj_name2id(model, mjOBJ_BODY, "base");
+    if (gui->track_body_id <= 0) {
+        fprintf(stderr, "ERROR: camera robot body not found\n");
+        return 0;
+    }
 
     fprintf(stderr, "glfwInit...\n");
     if (!glfwInit()) return 0;
@@ -43,6 +50,14 @@ static int gui_init(GuiRuntime *gui, const mjModel *model)
     glfwMakeContextCurrent(gui->window);
     glfwSetKeyCallback(gui->window, keyboard_cb);
     glfwSetWindowFocusCallback(gui->window, window_focus_cb);
+    /* 启动时请求键盘焦点；否则从外部终端启动时窗口可能可见但不接收
+     * W/S/E/Q 等控制键，表现为仿真自动平衡而手动指令完全无效。 */
+    glfwFocusWindow(gui->window);
+    /* Some window managers ignore the first focus request until the window
+     * is shown. Request it again after the initial event queue is flushed. */
+    glfwShowWindow(gui->window);
+    glfwPollEvents();
+    glfwFocusWindow(gui->window);
     glfwSwapInterval(0);
 
     mjv_defaultCamera(&gui->camera);
@@ -61,8 +76,6 @@ static int gui_init(GuiRuntime *gui, const mjModel *model)
             if (p >= 0 && p < 6) gui->camera_preset = p;
         }
     }
-    gui->track_body_id = mj_name2id(model, mjOBJ_BODY, "base");
-    if (gui->track_body_id < 0) gui->track_body_id = 0;
     apply_camera_preset(gui);
 
     mjv_defaultOption(&gui->option);
@@ -115,10 +128,11 @@ static void handle_gui_keys(GuiRuntime *gui, Simulation *sim)
 static void apply_camera_preset(GuiRuntime *gui)
 {
     mjvCamera *cam = &gui->camera;
-    cam->trackbodyid = gui->track_body_id;
+    /* Follow the chassis explicitly; subtree COM tracking can include props. */
+    cam->type = mjCAMERA_FREE;
+    cam->trackbodyid = -1;
     switch (gui->camera_preset) {
     case 0: /* 跟随第三人称 */
-        cam->type = mjCAMERA_TRACKING;
         cam->distance = 1.5f;
         cam->azimuth = 160.0f;
         cam->elevation = -15.0f;
@@ -131,19 +145,16 @@ static void apply_camera_preset(GuiRuntime *gui)
         cam->elevation = -80.0f;
         break;
     case 2: /* 车后跟随 */
-        cam->type = mjCAMERA_TRACKING;
         cam->distance = 1.6f;
         cam->azimuth = 0.0f;
         cam->elevation = -10.0f;
         break;
     case 3: /* 侧面近景 */
-        cam->type = mjCAMERA_TRACKING;
         cam->distance = 1.1f;
         cam->azimuth = 90.0f;
         cam->elevation = -8.0f;
         break;
     case 4: /* 对肩视角: 车后偏侧、略高，跟随车头朝向 */
-        cam->type = mjCAMERA_TRACKING;
         cam->distance = 1.3f;
         cam->azimuth = 150.0f;
         cam->elevation = -12.0f;
@@ -175,8 +186,22 @@ static void update_manual_command(GLFWwindow *window)
         else if (glfwGetKey(window, GLFW_KEY_E) == GLFW_RELEASE) g_key_extend = 0;
         if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_PRESS) g_key_shorten = 1;
         else if (glfwGetKey(window, GLFW_KEY_Q) == GLFW_RELEASE) g_key_shorten = 0;
-        if (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS) g_key_spin = 1;
-        else if (glfwGetKey(window, GLFW_KEY_T) == GLFW_RELEASE) g_key_spin = 0;
+        /* Z(和 T) = 原地小陀螺开关: 按一下开、再按一下关(不需要一直按着)。
+         * 按任何方向键(WASD)会自动退出小陀螺模式。
+         * 注意: 只在按键"上升沿"翻转, 所以键盘回调里不能再给
+         * g_key_spin 赋值(否则一次按下会被翻转两次)。 */
+        {
+            static int spin_key_prev = 0;
+            int spin_key_now = (glfwGetKey(window, GLFW_KEY_Z) == GLFW_PRESS) ||
+                               (glfwGetKey(window, GLFW_KEY_T) == GLFW_PRESS);
+            if (spin_key_now && !spin_key_prev) g_key_spin = !g_key_spin;
+            spin_key_prev = spin_key_now;
+            int wasd_now = (glfwGetKey(window, GLFW_KEY_W) == GLFW_PRESS) ||
+                           (glfwGetKey(window, GLFW_KEY_A) == GLFW_PRESS) ||
+                           (glfwGetKey(window, GLFW_KEY_S) == GLFW_PRESS) ||
+                           (glfwGetKey(window, GLFW_KEY_D) == GLFW_PRESS);
+            if (wasd_now) g_key_spin = 0;
+        }
         {
             static int g_space_prev = 0;
             int space_now = (glfwGetKey(window, GLFW_KEY_SPACE) == GLFW_PRESS);
@@ -195,8 +220,12 @@ static void update_manual_command(GLFWwindow *window)
          * 方向沿用 A/D 约定: 正=左转, 负=右转。 */
         yaw_rate = SIMPLE_MANUAL_SPIN_YAW_RATE;
     } else {
-        if (g_key_w) speed += SIMPLE_MANUAL_V_MAX;
-        if (g_key_s) speed -= SIMPLE_MANUAL_V_MAX;
+        /* W/S 速度指令符号：本模型车头朝 -x(世界系)。平衡核心的前向
+         * 约定是 +x 为正(轮编码器 fwd_spd = -(lw+rw)/2)，所以 W 必须给
+         * 负目标速度、S 给正，车才会朝车头方向走。改控制环符号是错的
+         * (环内部 v_ref->摆角->运动 是自洽的)，要改就改在按键这一层。 */
+        if (g_key_w) speed -= SIMPLE_MANUAL_V_MAX;
+        if (g_key_s) speed += SIMPLE_MANUAL_V_MAX;
         /* 平衡核心内 manual_yaw<0 -> 右转(实测头less 'r'=-0.5 转 yaw 负)，
          * 所以 A 左转给正、D 右转给负。 */
         if (g_key_a) yaw_rate += SIMPLE_MANUAL_YAW_RATE;
@@ -249,14 +278,12 @@ static int manual_active(void)
     return (g_key_w || g_key_a || g_key_s || g_key_d || g_key_spin);
 }
 
-static void gui_render_if_due(GuiRuntime *gui, const Simulation *sim)
+static void update_camera_follow(GuiRuntime *gui, const Simulation *sim)
 {
-    const double frame_interval = 1.0 / 60.0;
-    double now = glfwGetTime();
-    if (now - gui->last_render_wall_time < frame_interval)
-        return;
-
-    gui->last_render_wall_time = now;
+    const mjtNum *position = sim->data->xpos + 3*gui->track_body_id;
+    gui->camera.lookat[0] = position[0];
+    gui->camera.lookat[1] = position[1];
+    gui->camera.lookat[2] = position[2] + 0.10;
     if (gui->camera_preset == 2 || gui->camera_preset == 4) {
         /* 车后/对肩跟随: 相机方位角每帧跟随机体偏航，保持镜头在车尾方向；
          * 对肩再加 30° 偏侧形成“过肩”构图。 */
@@ -276,10 +303,21 @@ static void gui_render_if_due(GuiRuntime *gui, const Simulation *sim)
         gui->camera.azimuth = (float)(atan2(fy, fx) * 57.29578);
         gui->camera.distance = 2.0f;
         gui->camera.elevation = -6.0f;
-        gui->camera.lookat[0] = sim->state.body_pos[0] + fx * 0.5;
-        gui->camera.lookat[1] = sim->state.body_pos[1] + fy * 0.5;
-        gui->camera.lookat[2] = 0.15;
+        gui->camera.lookat[0] = position[0] + fx * 0.5;
+        gui->camera.lookat[1] = position[1] + fy * 0.5;
+        gui->camera.lookat[2] = position[2] + 0.15;
     }
+}
+
+static void gui_render_if_due(GuiRuntime *gui, const Simulation *sim)
+{
+    const double frame_interval = 1.0 / 60.0;
+    double now = glfwGetTime();
+    if (now - gui->last_render_wall_time < frame_interval)
+        return;
+
+    gui->last_render_wall_time = now;
+    update_camera_follow(gui, sim);
     mjv_updateScene(sim->model, sim->data, &gui->option, NULL, &gui->camera,
                     mjCAT_ALL, &gui->scene);
     trail_add_scene(&gui->trail, &gui->scene);
@@ -287,12 +325,6 @@ static void gui_render_if_due(GuiRuntime *gui, const Simulation *sim)
     int vw, vh;
     glfwGetFramebufferSize(gui->window, &vw, &vh);
     mjrRect viewport = {0, 0, vw, vh};
-
-    if (gui->camera_preset != 5) {
-        gui->camera.lookat[0] = sim->state.body_pos[0];
-        gui->camera.lookat[1] = sim->state.body_pos[1];
-        gui->camera.lookat[2] = 0.10;
-    }
 
     mjr_render(viewport, &gui->scene, &gui->context);
 
@@ -334,10 +366,13 @@ int run_gui(Simulation *sim)
 
     printf("COD-2026  |  dt=%.4f  nsensordata=%d\n",
            sim->model->opt.timestep, (int)sim->model->nsensordata);
-    printf("B=balance  L=lock  V=view  R=reset  SPACE=jump  W/S=drive  A/D=turn  ESC=quit\n");
+    printf("B=balance  L=lock  V=view  R=reset  SPACE=jump  W/S=drive  A/D=turn  Z=spin  E/Q=height  ESC=quit\n");
 
     while (!glfwWindowShouldClose(gui.window)) {
         glfwPollEvents();
+        /* Do not let a transient focus loss silently disable all controls.
+         * GLFW already delivers key release events on focus loss; clearing
+         * here made the visible window accept clicks but drop every key. */
         handle_gui_keys(&gui, sim);
         update_manual_command(gui.window);
         {

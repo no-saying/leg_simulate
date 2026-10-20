@@ -16,7 +16,7 @@ typedef struct {
     double roll;
     double yaw;
     double yaw_rate;
-    double gyro[3];
+    double gyro[3];                   /* Mounted body gyro, not Euler angle derivatives. */
     double acc[3];
     double acc_mag;
 

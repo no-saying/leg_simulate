@@ -11,6 +11,7 @@ SRCS = app/controller.c \
        balance/balance.c balance/balance_api.c balance/balance_util.c \
        balance/balance_core.c \
        balance/leg_kin_v3.c \
+       balance/vel_kf.c \
        controllers/lqr/lqr_controller.c \
        controllers/energy/energy_controller.c \
        controllers/supervisor/controller_supervisor.c \
@@ -29,15 +30,42 @@ all: ../controller
 
 $(BUILD_DIR)/%.o: %.c
 	@mkdir -p $(dir $@)
-	gcc $(CFLAGS) $(INCLUDES) -c $< -o $@
+	gcc $(CFLAGS) -MMD -MP $(INCLUDES) -c $< -o $@
+
+-include $(OBJS:.o=.d)
 
 run: ../controller
 	cd .. && ./controller
+
+build/verify_slip_controls: ../scripts/tools/verify_slip_controls.c $(OBJS)
+	gcc $(CFLAGS) $(INCLUDES) $< $(filter-out build/app/controller.o build/app/app_gui.o build/app/app_headless.o,$(OBJS)) $(LDFLAGS) $(RPATH) -o $@
+
+check-slip-observer:
+	@mkdir -p build
+	gcc $(CFLAGS) $(PORTABLE_INCLUDES) ../scripts/tools/test_slip_observer.c balance/vel_kf.c -lm -o build/test_slip_observer
+	./build/test_slip_observer
+
+check-attitude-rates:
+	@mkdir -p build
+	gcc $(CFLAGS) $(PORTABLE_INCLUDES) ../scripts/tools/test_attitude_rates.c -lm -o build/test_attitude_rates
+	./build/test_attitude_rates
+
+check-leg-allocation:
+	@mkdir -p build
+	gcc $(CFLAGS) $(PORTABLE_INCLUDES) ../scripts/tools/test_leg_allocation.c -lm -o build/test_leg_allocation
+	./build/test_leg_allocation
+
+check-gui-camera:
+	@mkdir -p build
+	gcc $(CFLAGS) -ffunction-sections -fdata-sections $(INCLUDES) ../scripts/tools/test_gui_camera.c -Wl,--gc-sections $(LDFLAGS) $(RPATH) -o build/test_gui_camera
+	cd .. && control/build/test_gui_camera
 
 PORTABLE_SRCS = balance/balance.c \
                 lowlevel/pid.c lowlevel/wheel_t.c lowlevel/leg_t.c \
                 balance/balance_api.c balance/balance_util.c balance/balance_core.c \
                 balance/leg_kin_v3.c \
+                balance/vel_kf.c \
+       balance/vel_kf.c \
                 controllers/lqr/lqr_controller.c \
                 controllers/energy/energy_controller.c \
                 controllers/supervisor/controller_supervisor.c \
@@ -60,4 +88,4 @@ check-portable:
 clean:
 	rm -rf $(BUILD_DIR) ../controller
 
-.PHONY: all run check-portable clean
+.PHONY: all run check-portable check-slip-observer check-attitude-rates check-leg-allocation check-gui-camera clean

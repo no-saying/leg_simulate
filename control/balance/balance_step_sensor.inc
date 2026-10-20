@@ -14,6 +14,12 @@
         g_balance.yaw_cont += wrap_pi_local(yaw_ang - g_balance.yaw_raw_prev);
         g_balance.yaw_raw_prev = yaw_ang;
     }
+    if (g_balance.manual_active &&
+        (fabsf(g_balance.manual_yaw_target) >= 0.05f ||
+         fabsf(g_balance.manual_yaw) >= 0.05f)) {
+        g_balance.yaw_zero = yaw_ang;
+        g_balance.yaw_i = 0.0f;
+    }
     float yaw_err_pb = wrap_pi_local(yaw_ang - g_balance.yaw_zero);
     g_balance.yaw_err_dbg = yaw_err_pb;
 
@@ -47,11 +53,12 @@
     if (imu_acc_raw < -20.0f) imu_acc_raw = -20.0f;
 
     /* 由腿关节速度估计轮轴相对机体的运动，用于补偿轮速中的腿摆/腿长变化分量。
-     * v3: 用闭链腿线性运动学映射(sw/L 单位 m)。 */
+     * v3: 用闭链标定运动学映射(sw/L 单位 m)。 */
 #if MODEL_V3
     float swing_dot, l_dot, r_dot;
-    leg_kin_v3_velocities(lf_vel_j, lr_vel_j, rf_vel_j, rr_vel_j,
-                          &swing_dot, &l_dot, &r_dot);
+    leg_kin_v3_velocities_calibrated(lf_pos, lr_pos, rf_pos, rr_pos,
+                                     lf_vel_j, lr_vel_j, rf_vel_j, rr_vel_j,
+                                     &swing_dot, &l_dot, &r_dot);
 #else
     float left_swing_dot = 0.5f * (lf_vel_j - lr_vel_j);
     float right_swing_dot = 0.5f * (rr_vel_j - rf_vel_j);
@@ -68,7 +75,7 @@
     g_balance.pitch_kin_v_dbg = pitch_kin_v;
     g_balance.wheel_body_v_dbg = wheel_v_body;
 
-    float wheel_v_prev = g_balance.wheel_v_filt;
+    float wheel_v_prev = g_balance.body_v_filt;
     float a_fast = dt_f / (0.012f + dt_f);
     if (a_fast > 1.0f) a_fast = 1.0f;
     if (!g_balance.filter_ready) {
@@ -82,7 +89,7 @@
         g_balance.body_v_filt += a_fast * (wheel_v_body - g_balance.body_v_filt);
         g_balance.imu_acc_filt += a_fast * (imu_acc_raw - g_balance.imu_acc_filt);
     }
-    g_balance.wheel_acc_dbg = (g_balance.wheel_v_filt - wheel_v_prev) / (dt_f > 1e-5f ? dt_f : 0.001f);
+    g_balance.wheel_acc_dbg = (g_balance.body_v_filt - wheel_v_prev) / (dt_f > 1e-5f ? dt_f : 0.001f);
     g_balance.imu_for_slip_dbg = g_balance.imu_acc_filt;
     g_balance.wheel_imu_res_dbg = fabsf(g_balance.wheel_acc_dbg - g_balance.imu_for_slip_dbg);
 
@@ -92,8 +99,8 @@
     /* 实测虚拟腿长，与辨识状态定义一致，供行车记录仪/未来模型分段选参使用。 */
 #if MODEL_V3
     float sw_dbg, L_dbg, R_dbg;
-    leg_kin_v3_forward(lf_pos, lr_pos, rf_pos, rr_pos,
-                       &sw_dbg, &L_dbg, &R_dbg);
+    leg_kin_v3_forward_calibrated(lf_pos, lr_pos, rf_pos, rr_pos,
+                                  &sw_dbg, &L_dbg, &R_dbg);
     g_balance.leg_len_dbg = 0.5f * (L_dbg + R_dbg);
 #else
     float left_len_dbg = 0.5f * (0.4f - lf_pos - lr_pos);
@@ -112,24 +119,62 @@
     /* 接触状态判断: 离地/冲击/打滑都只用现实传感器，不用仿真接触标志。 */
     int airborne_pb = (acc_mag < 4.0f && leg_load_common < 1.2f);
     int impact_pb = (acc_mag > 150.0f || fabsf(g_balance.imu_acc_filt) > 70.0f);
-    int slip_pb = (!airborne_pb && !impact_pb && abs_wheel_pb > 0.80f &&
-                   g_balance.wheel_imu_res_dbg > SIMPLE_SLIP_RESIDUAL &&
-                   abs_pitch_pb < 0.35f);
-    /* 低速打滑: 轮子几乎不转(|wf|<0.15)但 IMU 前向加速度非零
-     * (|imu_acc|>0.1), 说明车在滑而轮不滚(慢漂根因)。带滞回计数
-     * 防误判: 连续 4 步才算打滑, 连续 40 步不满足才解除。 */
-    int slip_low_cond_pb = (!airborne_pb && !impact_pb &&
-                            abs_wheel_pb < 0.15f &&
-                            fabsf(g_balance.imu_acc_filt) > 0.10f &&
-                            abs_pitch_pb < 0.35f);
-    if (slip_low_cond_pb)
-        g_balance.slip_score++;
-    else
-        g_balance.slip_score--;
-    g_balance.slip_score = (g_balance.slip_score > 4) ? 4 :
-                           (g_balance.slip_score < -40) ? -40 : g_balance.slip_score;
-    int slip_low_pb = (g_balance.slip_score > 0);
-    int zupt_pb = (!airborne_pb && !impact_pb && g_balance.run_time > 1.20f &&
+    float cr_slip = cosf(roll), sr_slip = sinf(roll);
+    float alpha_yaw = 0.0f, alpha_roll = 0.0f;
+    if (g_balance.slip_gyro_ready) {
+        alpha_yaw = (yaw_rate - g_balance.slip_gyro_yaw_prev) / dt_f;
+        alpha_roll = (roll_rate - g_balance.slip_gyro_roll_prev) / dt_f;
+    }
+    g_balance.slip_gyro_yaw_prev = yaw_rate;
+    g_balance.slip_gyro_roll_prev = roll_rate;
+    g_balance.slip_gyro_ready = 1;
+    /* Subtract alpha x r and omega x (omega x r) at the off-center IMU,
+     * then rotate specific force into the horizontal heading frame. */
+    float ax_center = acc_x - IMU_OFFSET_Y * (gyro_y * roll_rate - alpha_yaw);
+    float ay_center = acc_y + IMU_OFFSET_Y * (yaw_rate * yaw_rate + roll_rate * roll_rate);
+    float az_center = acc_z - IMU_OFFSET_Y * (gyro_y * yaw_rate + alpha_roll);
+    float slip_ax = cp * ax_center + sp * (sr_slip * ay_center + cr_slip * az_center);
+    float slip_ay = cr_slip * ay_center - sr_slip * az_center;
+    float left_body = wheel_v_body, right_body = wheel_v_body;
+    float lateral_ref = 0.0f;
+#if MODEL_V3
+    float ll, ls, rl, rs, jl[2][2], jr[2][2];
+    leg_kin_v3_calibrated_side(lf_pos, lr_pos, 0, &ll, &ls, jl);
+    leg_kin_v3_calibrated_side(rf_pos, rr_pos, 1, &rl, &rs, jr);
+    float lsw_dot = jl[1][0] * lf_vel_j + jl[1][1] * lr_vel_j;
+    float rsw_dot = jr[1][0] * rf_vel_j + jr[1][1] * rr_vel_j;
+    /* CAD names put Left_Wheel on negative control Y. Body rotation also
+     * contributes to the wheel's absolute spin, hence +R*gyro_y. */
+    float ly = -0.5f * WHEEL_TRACK, ry = 0.5f * WHEEL_TRACK;
+    float lrot = cp * (-gyro_y * ll - yaw_rate * ly)
+                 + sp * sr_slip * (yaw_rate * ls + roll_rate * ll)
+                 + sp * cr_slip * (roll_rate * ly - gyro_y * ls);
+    float rrot = cp * (-gyro_y * rl - yaw_rate * ry)
+                 + sp * sr_slip * (yaw_rate * rs + roll_rate * rl)
+                 + sp * cr_slip * (roll_rate * ry - gyro_y * rs);
+    left_body = -WHEEL_RADIUS * (lw_vel - gyro_y) - cp * lsw_dot + sp * cr_slip * l_dot - lrot;
+    right_body = -WHEEL_RADIUS * (rw_vel - gyro_y) - cp * rsw_dot + sp * cr_slip * r_dot - rrot;
+    lateral_ref = -0.5f * (cr_slip * (yaw_rate * (ls + rs) + roll_rate * (ll + rl))
+                           + sr_slip * (gyro_y * (ls + rs) + l_dot + r_dot));
+#endif
+    int slip_valid = !airborne_pb && !impact_pb && abs_pitch_pb < 0.70f &&
+                     fabsf(roll) < 0.5f && g_balance.run_time > 1.50f;
+    g_balance.slip_inertial_v = slip_observer_step(&g_balance.slip_observer,
+        left_body, right_body, slip_ax, slip_ay, yaw_ang, lateral_ref, slip_valid, dt_f);
+    int slip_pb = g_balance.slip_observer.active;
+    int linear_slip_pb = g_balance.slip_observer.linear_active;
+    int slip_low_pb = slip_pb && abs_body_pb < 0.15f &&
+                      fabsf(g_balance.slip_inertial_v) > SIMPLE_SLIP_LOW_V;
+    g_balance.slip_blend += dt_f / (0.040f + dt_f) *
+                            ((linear_slip_pb ? 1.0f : 0.0f) - g_balance.slip_blend);
+    int yaw_slip_pb = slip_pb && fabsf(g_balance.slip_observer.yaw_error) > SIMPLE_SLIP_YAW_V_ENTER;
+    g_balance.slip_yaw_blend += dt_f / (0.040f + dt_f) *
+                                ((yaw_slip_pb ? 1.0f : 0.0f) - g_balance.slip_yaw_blend);
+    float control_v_pb = (1.0f - g_balance.slip_blend) * g_balance.body_v_filt +
+                         g_balance.slip_blend * g_balance.slip_inertial_v;
+    int zupt_pb = (!slip_pb && !g_balance.slip_observer.raw &&
+                   fabsf(yaw_rate) < 0.10f && !g_balance.manual_spin_active &&
+                   !airborne_pb && !impact_pb && g_balance.run_time > 1.20f &&
                    abs_pitch_pb < 0.060f && fabsf(pitch_rate) < 1.2f &&
                    abs_body_pb < 0.008f && fabsf(g_balance.imu_acc_filt) < 1.5f);
 #if SIMPLE_WHEEL_CAPTURE_ENABLE
@@ -164,7 +209,6 @@
     if (airborne_pb) wheel_trust_pb = 0.0f;
     else if (impact_pb) wheel_trust_pb = 0.15f;
     else if (slip_pb) wheel_trust_pb = 0.15f;
-    else if (slip_low_pb) wheel_trust_pb = 0.30f;
     else if (abs_wheel_pb > 3.20f) wheel_trust_pb = 0.70f;
     int stable_odom_pb = (g_balance.run_time > 0.50f && abs_pitch_pb < 0.30f &&
                           fabsf(pitch_rate) < 5.0f && !airborne_pb && !impact_pb);

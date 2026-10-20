@@ -17,6 +17,10 @@
 #define SIMPLE_MANUAL_ACCEL 0.30f
 #endif
 
+#ifndef SIMPLE_MANUAL_DECEL
+#define SIMPLE_MANUAL_DECEL 0.80f
+#endif
+
 #ifndef SIMPLE_MANUAL_YAW_ACCEL
 /* 手动转向指令变化率上限，单位 rad/s^2。
  * 2.5 起步太猛 -> yaw 耦合进 pitch 的扰动大, 压不住翻车。0.8 平缓。 */
@@ -27,13 +31,18 @@
 /* A/D 手动转向目标偏航角速度，单位 rad/s。
  * 0.8 时 yaw 耦合进 pitch 的扰动太大, 手动 pitch 环+摩擦极限
  * 压不住 -> 转向 2s 内翻车。0.4 时扰动减半, 轮子咬得住。 */
-#define SIMPLE_MANUAL_YAW_RATE 0.40f
+#define SIMPLE_MANUAL_YAW_RATE 1.20f
 #endif
 
 #ifndef SIMPLE_MANUAL_SPIN_YAW_RATE
-/* T 键原地小陀螺目标偏航角速度，单位 rad/s。
- * 比 A/D 转向快得多, 让车原地高速自转。 */
-#define SIMPLE_MANUAL_SPIN_YAW_RATE 3.0f
+/* 小陀螺低腿长目标偏航角速度；长腿在控制环中降到普通转向目标。
+ * 这里是指令值，实际角速度仍受牵引力和偏航环限幅约束。 */
+#define SIMPLE_MANUAL_SPIN_YAW_RATE 2.40f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPIN_RATE_SCALE
+/* 小陀螺全腿长分段目标统一提速 15%，普通 A/D 速度不变。 */
+#define SIMPLE_MANUAL_SPIN_RATE_SCALE 1.15f
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE_MAX
@@ -51,25 +60,63 @@
  * 已经产生 ~200 rad/s² 的偏航加速度, 30ms 内冲到 3.7rad/s 过冲,
  * 车身被轮子反作用力掀翻(实测 pitch 顶到饱和、车走大圆漂移)。
  * 0.6Nm 差动(每轮 0.12Nm)足够 0.8rad/s 原地转, 且不扰动 pitch。 */
-#define SIMPLE_MANUAL_YAW_MAX 0.60f
+#define SIMPLE_MANUAL_YAW_MAX 1.20f
+#endif
+
+#ifndef SIMPLE_MANUAL_SPIN_YAW_MAX
+/* 小陀螺独立差动上限，普通 A/D 仍使用 SIMPLE_MANUAL_YAW_MAX。 */
+#define SIMPLE_MANUAL_SPIN_YAW_MAX 1.40f
 #endif
 
 #ifndef SIMPLE_MANUAL_YAW_RATE_KP
 /* 手动转向偏航角速度增益，单位 Nm/(rad/s)。
  * 7 时稳态 149°/s 稳定不漂; 12 到 159°/s 但自转被扰动带偏(漂 2.7m)。
  * v3 轮腿车 9/3 都太高 -> 差速扭矩过大, 偏航率瞬间过冲到 3.7rad/s,
- * 车身被掀翻。0.8 Nm/(rad/s) + 0.6Nm 上限: 转向力矩柔和,
- * 偏航率平滑收敛到指令值, 不再打滑/掀翻。 */
-#define SIMPLE_MANUAL_YAW_RATE_KP 1.20f
+ * 0.4 时另外发现"转一下就停": 腿伺服对偏航的反作用有静摩擦, 0.4 在
+ * 速率误差 0.4rad/s 时只给 0.16Nm, 车转到 ~36° 就完全停住不再转。
+ * 偏航环提到每步 1kHz 执行(去掉 20ms 零阶保持的相位滞后)后重标:
+ *   KP=1.2 -> 偏航率 0.38rad/s, 抖动 std 0.19, 离起点 0.12m
+ *   KP=2.4 -> 0.47rad/s, std 0.18, 离起点 0.12m   ← 取这个
+ *   KP=4.0/8.0 -> 0.49rad/s 但 std 升到 0.23(开始激发 8Hz 偏航谐振)
+ * 上限仍是 0.6Nm。 */
+#define SIMPLE_MANUAL_YAW_RATE_KP 2.40f
 #endif
 
 #ifndef SIMPLE_MANUAL_PITCH_TAU_MAX
 /* 手动驾驶时俯仰环共模扭矩上限，单位 Nm。
- * 自动模式(启动/静止)仍用 8Nm 保证能救住启动瞬态; 手动行驶/转向时
- * 轮上摩擦极限只有 ~0.5Nm/轮, 8Nm 会让轮子烧胎空转反推车体滑动
- * (实测 -66rad/s 空转、车体前滑 2.5m/s)。1.2Nm 共模(0.6Nm/轮)
- * 折中: 静止/转向轮子咬地, 摆腿加减速瞬态允许少量滑动换姿态稳定。 */
-#define SIMPLE_MANUAL_PITCH_TAU_MAX 1.20f
+ * 注意: 共模扭矩对两个轮子是"每个轮子都给这么多"(c2=c5=pitch_mix),
+ * 所以这里的数值必须和单轮摩擦极限比较: μ·(m·g/2)·r ≈ 1.0·11.9·0.0435
+ * ≈ 0.52Nm/轮。给到 4Nm 并不会真的输出 4Nm——超过摩擦极限后轮子
+ * 打滑, 实际牵引力封顶在 μ·N。
+ * 旧值 1.2Nm 的问题不是"太大"而是"太接近工作点": 手动俯仰 P 增益
+ * 是 -25, 1.2Nm 对应仅 2.7° 误差就饱和, 于是正常巡航时俯仰环一直
+ * 顶在限幅上(毫无余量), 松手刹车/扰动的瞬态一超 3° 就救不回来
+ * (实测松手后 20° 后仰 -> 翻车)。放大到 4Nm 让俯仰环有真实的工作
+ * 区间(约 9°), 物理上仍由地面摩擦封顶。 */
+#define SIMPLE_MANUAL_PITCH_TAU_MAX 4.00f
+#endif
+
+#ifndef SIMPLE_LONG_TURN_PITCH_TAU_MAX
+/* 长腿停转保留正常停车的恢复余量，不能在切换时降到 1 Nm。 */
+#define SIMPLE_LONG_TURN_PITCH_TAU_MAX 4.00f
+#endif
+
+#ifndef SIMPLE_TURN_PITCH_TAU_MAX
+/* 中长腿纯转向时留给俯仰平衡的共模扭矩；保留非零值维持姿态。 */
+#define SIMPLE_TURN_PITCH_TAU_MAX 0.25f
+#endif
+
+#ifndef SIMPLE_SHORT_TURN_PITCH_TAU_MAX
+/* 短腿的轮子需要稍多的俯仰平衡余量。 */
+#define SIMPLE_SHORT_TURN_PITCH_TAU_MAX 0.50f
+#endif
+
+#ifndef SIMPLE_TURN_PITCH_RECOVERY_START
+#define SIMPLE_TURN_PITCH_RECOVERY_START 0.040f
+#endif
+
+#ifndef SIMPLE_TURN_PITCH_RECOVERY_FULL
+#define SIMPLE_TURN_PITCH_RECOVERY_FULL 0.080f
 #endif
 
 #ifndef SIMPLE_MANUAL_SWING_SPEED_START
@@ -99,18 +146,173 @@
 #endif
 
 #ifndef SIMPLE_MANUAL_SWING_MAX
-/* 手动腿摆最大偏置，单位 m。复用位置环的腿摆限幅。 */
-#define SIMPLE_MANUAL_SWING_MAX SIMPLE_ORIGIN_LEG_MAX
+/* 手动腿摆最大偏置，单位 m(相对 SIMPLE_MANUAL_SWING_TRIM)。
+ * 不再复用自动位置环的 ±0.03: 手动速度环需要参考有余量, 参考被限幅顶住
+ * 时腿伺服会把车"钉死"(实测 S 反向时摆角停在限幅上, 车完全静止不动,
+ * 连速度环都推不动)。0.05 对应摆角总范围 ±0.05m、关节约 ±27°, 仍在
+ * 行程内; 实际巡航只用得到 0.014~0.028。 */
+#define SIMPLE_MANUAL_SWING_MAX 0.050f
 #endif
 
 #ifndef SIMPLE_MANUAL_SWING_DRIVE
 /* 手动 W/S 按住时的固定腿摆角，单位 m。
  * 用户要求的驱动方式: 腿摆到一个固定角度, 质心相对轮轴后移/前移,
  * 俯仰环输出轮扭矩让车前进/后退, pitch 目标恒为 0。
- * 不用速度反馈(启动/摆腿时轮速被腿几何耦合污染, 会误判成高速
- * 把腿摆打反)。巡航速度由俯仰环自带速度阻尼自然收敛。 */
-#define SIMPLE_MANUAL_SWING_DRIVE 0.015f
+ * 0.015 太大: 闭链腿屈曲 + pitch 瞬态超摩擦 -> 按 S 翻车(GUI 实测)。
+ * 0.006 小幅摆动: 屈曲小、pitch 扰动小, 轮子咬得住, 缓慢前进/后退。 */
+#define SIMPLE_MANUAL_SWING_DRIVE 0.012f
 #endif
+
+#ifndef SIMPLE_MANUAL_SWING_V_KP
+/* 手动 W/S 腿摆速度环增益，单位 m/(m/s)。
+ * 腿摆角就是"质心相对轮轴的前后偏移"，本质是加速度执行器: 固定摆角
+ * 会一直加速, 没有速度反馈就无从收敛。用速度误差闭环后腿摆停在
+ * "维持目标车速"的角度上并保持, 不会随速度升高被软限速拉回中位
+ * (旧固定摆角+软限速的方案表现为"腿摆一下又回去了")。
+ * 符号: 车慢于目标(v_err>0) -> 摆角减小 -> 质心前移 -> 向前加速。
+ * 0.030: 1.2m/s 误差 -> 36mm 摆角, 被 ±SIMPLE_MANUAL_SWING_MAX 限幅;
+ * 实测 W 稳态 1.18m/s(指令 1.2), S 反向 0.6m/s, 正反向可用。 */
+#define SIMPLE_MANUAL_SWING_V_KP 0.030f
+#endif
+
+#ifndef SIMPLE_LONG_MANUAL_BRAKE_START
+#define SIMPLE_LONG_MANUAL_BRAKE_START 0.135f
+#endif
+#ifndef SIMPLE_LONG_MANUAL_BRAKE_KP
+/* 长腿摆腿驱动时的同向超速轮上制动，单位 Nm/(m/s)。 */
+#define SIMPLE_LONG_MANUAL_BRAKE_KP 3.0f
+#endif
+#ifndef SIMPLE_LONG_MANUAL_BRAKE_MAX
+#define SIMPLE_LONG_MANUAL_BRAKE_MAX 2.0f
+#endif
+#ifndef SIMPLE_LONG_POST_BRAKE_KP
+#define SIMPLE_LONG_POST_BRAKE_KP 3.0f
+#endif
+#ifndef SIMPLE_LONG_POST_BRAKE_MAX
+#define SIMPLE_LONG_POST_BRAKE_MAX 2.0f
+#endif
+#ifndef SIMPLE_LONG_POST_TIMEOUT
+#define SIMPLE_LONG_POST_TIMEOUT 6.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_V_ERR_MAX
+/* 手动速度误差限幅，单位 m/s；防止摆腿/打滑瞬态把腿摆一次打满。 */
+#define SIMPLE_MANUAL_SWING_V_ERR_MAX 1.20f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_RECENTER_RATE
+/* 进手动后"摆位吸附偏移"回到平衡摆角的速度，单位 m/s。
+ * 取和摆腿变化率限幅同量级(0.01m/s), 腿重新对中时不会超过伺服跟得上
+ * 的速度; 24mm 偏移约 2.5s 归零。 */
+#define SIMPLE_MANUAL_SWING_RECENTER_RATE 0.010f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_RATE
+/* 手动模式腿摆偏置的变化率限幅，单位 m / 1ms 控制步(即 m/s ÷ 1000)。
+ * 0.00001(0.01m/s) 时摆角从 +0.05 走到 -0.05 要 10s，位置环根本追不上
+ * 转向起步那一下的前后扰动 -> 原地转时会滑出 0.7~1m。
+ * 0.00003(0.03m/s) 是响应与"摆腿不抽搐"的折中: 满幅 1.7s。 */
+#define SIMPLE_MANUAL_SWING_RATE 0.00003f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_TRIM
+/* 手动硬腿伺服与自动软腿伺服的平衡摆位相差约 7.5mm。 */
+#define SIMPLE_MANUAL_SWING_TRIM (-0.0075f)
+#endif
+
+#ifndef SIMPLE_MANUAL_LEG_LEN_REF
+/* 手动摆角配平标定时的腿长, 单位 m(与 SIMPLE_MANUAL_SWING_TRIM 配套)。 */
+#define SIMPLE_MANUAL_LEG_LEN_REF 0.110f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_TRIM_LK
+/* 已由共用配平表按腿长处理。 */
+#define SIMPLE_MANUAL_SWING_TRIM_LK 0.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_TRIM_MIN
+/* 配平摆角下限，单位 m。 */
+#define SIMPLE_MANUAL_SWING_TRIM_MIN (-0.0075f)
+#endif
+
+#ifndef SIMPLE_MANUAL_SWING_TRIM_MAX
+/* 配平摆角上限，单位 m。 */
+#define SIMPLE_MANUAL_SWING_TRIM_MAX (-0.0075f)
+#endif
+
+#ifndef SIMPLE_MANUAL_HOLD_POS_KP
+/* 手动"不前后走"时(纯转向/零指令)把车钉在原地的位置环 P 增益，
+ * 单位 (m/s)/m。输出的是目标速度, 再由腿摆速度环实现。
+ * 标定(按住 A 转 15s, 量机体离起点的最大距离):
+ *   0.6 -> 0.57m(绕半径 0.3m 的圆跑), 3.0 -> 0.29m, 5.0 -> 0.18m(且转完
+ *   回到起点 0.10m), 8.0/12 -> 反而变差(|pitch| 冲到 5~6°, 摆腿执行器
+ *   跟不上位置环 -> 振荡)。取 5.0。 */
+#define SIMPLE_MANUAL_HOLD_POS_KP 5.00f
+#endif
+
+#ifndef SIMPLE_MANUAL_HOLD_V_MAX
+/* 手动"原地保持"目标速度限幅，单位 m/s；限制回正速度, 避免大偏差
+ * 时用高速冲回进入点(过冲后反而更难停)。 */
+#define SIMPLE_MANUAL_HOLD_V_MAX 0.45f
+#endif
+
+#ifndef SIMPLE_MANUAL_TURN_VEL_DAMP
+/* 纯转向的前向轮速阻尼，单位 Nm/(m/s)。中腿小陀螺实测 2.0
+ * 比 0 和 4.0 更能限制旋转期间的最大位移。 */
+#define SIMPLE_MANUAL_TURN_VEL_DAMP 2.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_KP
+/* 叉腿转向增益，单位 m/(rad/s)：偏航角速度误差 -> 左右腿摆差动。
+ * 差动把轮轴线在水平面内"拧"一个角度, 由闭链腿几何直接产生偏航力矩,
+ * 不像轮子差速那样必须先把轮胎推滑起来, 也不带前后推力。 */
+#define SIMPLE_MANUAL_YAW_LEG_KP 0.030f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_MAX
+/* 叉腿最大差动，单位 m(左右腿摆参考互差 2×该值)。
+ * 用户反馈"差动腿摆摆的太多了": 0.045 时左右腿摆互差 90mm, 视觉上腿
+ * 叉得很开。实际转向力矩主要仍来自轮子差速(实测只留叉腿时偏航率
+ * 均值只有 -0.03rad/s), 所以把幅度收到 0.018 只留一点几何偏置。 */
+#define SIMPLE_MANUAL_YAW_LEG_MAX 0.018f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_RATE
+/* 叉腿差动变化率限幅，单位 m/s。 */
+#define SIMPLE_MANUAL_YAW_LEG_RATE 0.060f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_SIGN
+/* 叉腿转向方向: +1 时 A(manual_yaw>0) 给正差动。方向不对改成 -1。 */
+#define SIMPLE_MANUAL_YAW_LEG_SIGN 1.0f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_SCALE_MIN
+/* 叉腿幅值随腿长缩放的系数下限(腿短时不要缩到 0)。 */
+#define SIMPLE_MANUAL_YAW_LEG_SCALE_MIN 0.8f
+#endif
+
+#ifndef SIMPLE_MANUAL_YAW_LEG_SCALE_MAX
+/* 叉腿幅值随腿长缩放的系数上限(腿长时限幅, 防止关节行程过大)。 */
+#define SIMPLE_MANUAL_YAW_LEG_SCALE_MAX 1.6f
+#endif
+
+#ifndef SIMPLE_TURN_LEG_MIN
+/* 下限覆盖最短可用腿长约 0.071m，留机械读数余量。 */
+#define SIMPLE_TURN_LEG_MIN 0.066f
+#endif
+#ifndef SIMPLE_TURN_LEG_MAX
+/* 普通 A/D 转向覆盖机械最大可用腿长，保留约 8mm 读数余量。 */
+#define SIMPLE_TURN_LEG_MAX 0.165f
+#endif
+#ifndef SIMPLE_SPIN_LEG_REDUCE_START
+#define SIMPLE_SPIN_LEG_REDUCE_START 0.132f
+#endif
+#ifndef SIMPLE_SPIN_LEG_REDUCE_FULL
+/* 长腿高速小陀螺横漂明显，在这段腿长内降到普通转向速度。 */
+#define SIMPLE_SPIN_LEG_REDUCE_FULL 0.145f
+#endif
+
 
 #ifndef SIMPLE_MANUAL_SWING_STOP_KP
 /* 松手停车腿摆刹车增益，单位 m/(m/s)。
@@ -274,8 +476,18 @@
 
 #ifndef SIMPLE_MANUAL_PITCH_GATE
 /* 手动行驶前倾角门控，单位 rad；实测俯仰超过该值时自动撤掉驱动指令，
- * 让车先回正。限制的是姿态而不是速度。 */
-#define SIMPLE_MANUAL_PITCH_GATE 0.150f   /* v3: 前倾超过8.6°撤手动指令回正 */
+ * 让车先回正。限制的是姿态而不是速度。
+ * 注意: 从这里到 PITCH_GATE_HARD 之间是"按比例收敛驱动", 不是硬清零。
+ * 旧实现到 8.6° 直接清零, 正常行驶的瞬态就会把腿摆指令打回中位,
+ * 用户看到的现象就是"腿摆摆一下又回去了"。 */
+#define SIMPLE_MANUAL_PITCH_GATE 0.120f   /* v3: 超过6.9°开始按比例收敛 */
+#endif
+
+#ifndef SIMPLE_MANUAL_PITCH_GATE_HARD
+/* 手动驾驶姿态硬保护阈值，单位 rad(约17°)；超过才彻底撤掉手动指令。
+ * 轮上摩擦极限约 μ·m·g/2·r≈0.5Nm/轮, 手动共模扭矩上限就设在那里,
+ * 超过 ~12° 基本救不回来, 所以硬门控留在这里做最后保护。 */
+#define SIMPLE_MANUAL_PITCH_GATE_HARD 0.300f
 #endif
 
 #ifndef SIMPLE_MANUAL_NEUTRAL_SLEW

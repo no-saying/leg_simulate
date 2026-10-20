@@ -10,38 +10,92 @@
  *   gcc -O2 -fPIC -shared -o ident_bridge.so ident_bridge.c \
  *       ../control/balance/balance.c ../control/balance/balance_api.c \
  *       ../control/balance/balance_util.c ../control/balance/balance_core.c \
- *       -I../control/include -I../control/balance -lm
+ *       ../control/balance/leg_kin_v3.c \
+ *       ../control/balance/vel_kf.c \
+ *       ../control/controllers/lqr/lqr_controller.c \
+ *       ../control/controllers/energy/energy_controller.c \
+ *       ../control/controllers/supervisor/controller_supervisor.c \
+ *       ../control/controllers/rl_jump/rl_jump_net.c \
+ *       ../control/controllers/rl_jump/rl_jump_controller.c \
+ *       ../control/runtime/robot_control.c \
+ *       ../control/lowlevel/pid.c ../control/lowlevel/wheel_t.c \
+ *       ../control/lowlevel/leg_t.c \
+ *       -I../control/include -I../control -I../control/balance \
+ *       -I../control/lowlevel -I../control/runtime -I../control/controllers -lm
  *
  * 只依赖控制核心(不依赖 MuJoCo/GLFW), 方便 Python ctypes 调用。
  */
 #include <stddef.h>
+#include <string.h>
+#include "ident_frame.h"
 
 #include "../control/balance/balance.h"
+#include "../control/balance/balance_internal.h"
 #include "../control/runtime/robot_control.h"
 #include "../control/include/sim_state.h"
+#include "../control/include/attitude_rates.h"
 #include "../control/controllers/supervisor/controller_supervisor.h"
 #include "../control/controllers/rl_jump/rl_jump_controller.h"
 #include "../control/lowlevel/leg_t.h"
 #include "../control/lowlevel/pid.h"
 #include "../control/include/control_config.h"
+#include "../control/balance/leg_kin_v3.h"
 
-typedef struct {
-    float pitch, pitch_rate, roll, roll_rate;
-    float left_wheel_vel, right_wheel_vel;
-    float acc_mag, acc_x, acc_z;
-    float yaw, yaw_rate;
-    float left_wheel_pos, right_wheel_pos;
-    float lf_pos, lr_pos, rf_pos, rr_pos;
-    float lf_tau, lr_tau, rf_tau, rr_tau;
-    float left_wheel_tau, right_wheel_tau;
-    float lf_vel, lr_vel, rf_vel, rr_vel;
-    float acc_y;
-    double quat[4];
-    double body_pos[3];
-    double body_vel[3];
-    double sim_time;
-    int    step_count;
-} IdentFrame;
+static float g_spin_obs[28];
+static float g_spin_length_command = LEG_V3_L_MID;
+
+void ident_spin_command(const float input[7])
+{
+    float ext = fmaxf(CTRL_LQR_FULL_EXT_MIN, fminf(CTRL_LQR_FULL_EXT_MAX, input[0]));
+    g_balance.leg_extend_manual = ext;
+    g_spin_length_command = LEG_V3_L_MID - ext;
+    balance_set_spin_rate_reference(input[1], fabsf(input[1]) > 0.00001f);
+    robot_control_set_spin_residual(input + 2, 1);
+}
+
+void ident_spin_observation(float obs[28])
+{
+    memcpy(obs, g_spin_obs, sizeof(g_spin_obs));
+}
+
+void ident_leg_jacobians(const IdentFrame *f, float output[8])
+{
+    const float positions[4] = {f->lf_pos, f->lr_pos, f->rf_pos, f->rr_pos};
+    for (int side = 0; side < 2; ++side) {
+        float length, swing, j[2][2];
+        leg_kin_v3_calibrated_side(positions[2*side], positions[2*side+1], side,
+                                  &length, &swing, j);
+        /* Body coordinates x forward, z up, while native L is down. */
+        for (int k = 0; k < 2; ++k) {
+            output[4*side+k] = j[1][k];
+            output[4*side+2+k] = -j[0][k];
+        }
+    }
+}
+
+static void capture_spin_observation(const SensorState *s)
+{
+    float *o = g_spin_obs;
+    double w = s->quat[0], x = s->quat[1], y = s->quat[2], z = s->quat[3];
+    o[0] = 2*(x*z-w*y); o[1] = 2*(y*z+w*x); o[2] = 1-2*(x*x+y*y);
+    for (int k = 0; k < 3; ++k) { o[3+k] = s->gyro[k]; o[6+k] = s->acc[k]; }
+    o[9] = s->lw_vel; o[10] = s->rw_vel;
+    float j[2][2];
+    leg_kin_v3_calibrated_side(s->lf_pos, s->lr_pos, 0, o+11, o+15, j);
+    o[13] = j[0][0]*s->lf_vel+j[0][1]*s->lr_vel;
+    o[17] = j[1][0]*s->lf_vel+j[1][1]*s->lr_vel;
+    leg_kin_v3_calibrated_side(s->rf_pos, s->rr_pos, 1, o+12, o+16, j);
+    o[14] = j[0][0]*s->rf_vel+j[0][1]*s->rr_vel;
+    o[18] = j[1][0]*s->rf_vel+j[1][1]*s->rr_vel;
+    o[19] = s->est_v;
+    for (int k = 0; k < 2; ++k) {
+        o[20+k] = balance_get_wheel_mismatch(k);
+        o[22+k] = balance_get_obstacle_leg_retract(k);
+    }
+    o[24] = g_spin_length_command; o[25] = 0.0f;
+    o[26] = balance_get_manual_yaw(); /* Actual ramped, height-scheduled command. */
+    o[27] = controller_supervisor_lqr_mix();
+}
 
 typedef struct {
     float wheel_tau;
@@ -75,6 +129,8 @@ void ident_reset(void)
     controller_supervisor_init();     /* 重置自救状态机 */
     rl_jump_controller_init();        /* 重置 RL 跳跃状态机 */
     robot_control_reset();            /* 重置低层伺服 PID 等 */
+    memset(g_spin_obs, 0, sizeof(g_spin_obs));
+    g_spin_length_command = LEG_V3_L_MID;
     ident_warmup_reset();             /* 重置预热腿伺服 PID */
 }
 
@@ -117,6 +173,7 @@ void ident_robot_step(const IdentFrame *f, double dt, float ctrl[6])
     s.step_count = f->step_count;
 
     robot_control_step(&s, dt);
+    capture_spin_observation(&s);
     for (int i = 0; i < 6; i++) ctrl[i] = (float)s.ctrl[i];
 }
 
@@ -177,7 +234,9 @@ void ident_warmup_step(const IdentFrame *f, double dt, float ctrl[6])
     BalanceOutput b;
 
     frame.pitch           = f->pitch;
-    frame.pitch_rate      = f->pitch_rate;
+    frame.pitch_rate      = attitude_control_pitch_rate(f->roll, f->pitch_rate, f->yaw_rate,
+        balance_get_manual_spin() || fabsf(balance_get_manual_yaw()) >= 0.05f ||
+        (balance_get_post_manual() && fabsf(f->yaw_rate) >= 0.05f));
     frame.roll            = f->roll;
     frame.roll_rate       = f->roll_rate;
     frame.left_wheel_vel  = f->left_wheel_vel;
@@ -203,6 +262,8 @@ void ident_warmup_step(const IdentFrame *f, double dt, float ctrl[6])
     frame.lr_vel          = f->lr_vel;
     frame.rf_vel          = f->rf_vel;
     frame.rr_vel          = f->rr_vel;
+    frame.acc_y           = 0.0f;
+    frame.gyro_y          = f->pitch_rate;
 
     balance_update_frame(&frame, dt, &b);
 
@@ -256,10 +317,11 @@ void ident_set_leg_len(float v)
  * 三环仍负责 pitch/yaw/roll 稳定, 但腿长参考完全由辨识脚本给定。 */
 void ident_set_leg_len_direct(float v)
 {
-    balance_set_leg_extend_manual(v);
-    /* leg_extend_manual 会被 balance_update 的 ext_ref 吸收,
-     * 这里额外把 leg_extend 状态本身也推到目标, 保证实际腿长跟随。 */
-    balance_set_leg_extend_manual(v);
+    /* 辨识要扫描完整物理腿长，绕过 GUI E/Q 的 +/-0.04 m 输入限幅。
+     * 仍由 balance_update_frame 的 PID、限速和腿长参考滤波执行。 */
+    if (v < -0.093f) v = -0.093f;
+    if (v > 0.070f) v = 0.070f;
+    g_balance.leg_extend_manual = v;
 }
 
 void ident_step(const IdentFrame *f, double dt, IdentOut *out)
@@ -268,7 +330,9 @@ void ident_step(const IdentFrame *f, double dt, IdentOut *out)
     BalanceOutput b;
 
     frame.pitch           = f->pitch;
-    frame.pitch_rate      = f->pitch_rate;
+    frame.pitch_rate      = attitude_control_pitch_rate(f->roll, f->pitch_rate, f->yaw_rate,
+        balance_get_manual_spin() || fabsf(balance_get_manual_yaw()) >= 0.05f ||
+        (balance_get_post_manual() && fabsf(f->yaw_rate) >= 0.05f));
     frame.roll            = f->roll;
     frame.roll_rate       = f->roll_rate;
     frame.left_wheel_vel  = f->left_wheel_vel;
@@ -294,6 +358,8 @@ void ident_step(const IdentFrame *f, double dt, IdentOut *out)
     frame.lr_vel          = f->lr_vel;
     frame.rf_vel          = f->rf_vel;
     frame.rr_vel          = f->rr_vel;
+    frame.acc_y           = 0.0f;
+    frame.gyro_y          = f->pitch_rate;
 
     balance_update_frame(&frame, dt, &b);
 

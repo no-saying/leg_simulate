@@ -28,12 +28,13 @@
 #include "control_config.h"
 #include "rl_jump_net.h"
 #include "../../balance/balance.h"
+#include "../../balance/leg_kin_v3.h"
 
 /* 训练环境常量(scripts/jump_rl_env.py) */
 #define RL_JUMP_NOM_HEIGHT   0.085f   /* 观测高度基准, obs[18] = z - 0.085 */
-#define RL_JUMP_TAU_L        150.0f   /* 腿长虚拟力矩量程 Nm(降低起跳力度) */
-#define RL_JUMP_TAU_SW       60.0f    /* 腿摆虚拟力矩量程 Nm */
-#define RL_JUMP_TAU_DIFF     60.0f    /* 左右腿长差虚拟力矩量程 Nm */
+#define RL_JUMP_TAU_L        150.0f   /* 腿长虚拟力量程 N(降低起跳力度) */
+#define RL_JUMP_TAU_SW       60.0f    /* 腿摆虚拟力量程 N */
+#define RL_JUMP_TAU_DIFF     60.0f    /* 左右腿长差虚拟力量程 N */
 #define RL_JUMP_LEG_GAIN     50.0f    /* 腿执行器 gainprm(力矩->ctrl) */
 #define RL_JUMP_WHEEL_CTRL   10.0f    /* 轮动作 -> ctrl(±10 -> ±100Nm) */
 #define RL_JUMP_LP_ALPHA     0.5f     /* 动作低通: filt = 0.5*filt + 0.5*raw */
@@ -41,7 +42,7 @@
 /* PREP 收腿到最短(用户指定: 触发后先收到最短腿再执行跳跃) */
 #define RL_JUMP_PREP_EXT     0.25f    /* leg_extend_manual 极限收腿 */
 #define RL_JUMP_PREP_TIMEOUT 3.0f     /* 收腿最长时长 s(实测 1.5s 收不到位) */
-#define RL_JUMP_PREP_L_DONE  0.05f    /* 腿收到 L>=0.05(部署物理极限≈0.057) */
+#define RL_JUMP_PREP_L_DONE  0.085f   /* v3 手动收腿上限下, L 收到该值以下即接管 */
 
 /* 退出判定阈值 */
 #define RL_JUMP_TIMEOUT        3.0f    /* RL 全程窗口时长 s(与训练一致) */
@@ -135,10 +136,9 @@ static void build_obs(const SensorState *s, float obs[RL_JUMP_N_IN])
 {
     float lf = (float)s->lf_pos, lr = (float)s->lr_pos;
     float rf = (float)s->rf_pos, rr = (float)s->rr_pos;
-    /* 关节电机 -> 腿长/腿摆: 与平衡控制器 _leg_targets 同一套线性映射 */
-    float sw = 0.25f * ((lf - lr + 0.4f) + (0.3f - rf + rr));
-    float leg_l = 0.5f * (0.4f - lf - lr);
-    float leg_r = 0.5f * (rf + rr + 0.5f);
+    /* 关节电机 -> 腿长/腿摆: v3 与平衡控制器共用 leg_kin_v3 映射。 */
+    float sw, leg_l, leg_r;
+    leg_kin_v3_forward(lf, lr, rf, rr, &sw, &leg_l, &leg_r);
 
     obs[0]  = (float)s->pitch;
     obs[1]  = (float)s->roll;
@@ -183,15 +183,18 @@ static void build_obs(const SensorState *s, float obs[RL_JUMP_N_IN])
  * 轮子直接力矩。与训练环境 _step_ctrl 完全一致。 */
 static void apply_action(RlJumpCmd *out, const float act[RL_JUMP_N_OUT])
 {
-    float tau_l = act[0] * RL_JUMP_TAU_L;
-    float tau_sw = act[1] * RL_JUMP_TAU_SW;
-    float tau_diff = act[2] * RL_JUMP_TAU_DIFF;
-    float tau_ll = tau_l + 0.5f * tau_diff;
-    float tau_lr = tau_l - 0.5f * tau_diff;
-    out->ctrl[0] = (tau_sw - tau_ll) / RL_JUMP_LEG_GAIN;   /* lf */
-    out->ctrl[1] = (-tau_sw - tau_ll) / RL_JUMP_LEG_GAIN;  /* lr */
-    out->ctrl[3] = (-tau_sw + tau_lr) / RL_JUMP_LEG_GAIN;  /* rf */
-    out->ctrl[4] = (tau_sw + tau_lr) / RL_JUMP_LEG_GAIN;   /* rr */
+    float F_l = act[0] * RL_JUMP_TAU_L;
+    float F_sw = act[1] * RL_JUMP_TAU_SW;
+    float F_diff = act[2] * RL_JUMP_TAU_DIFF;
+    float F_ll = F_l + 0.5f * F_diff;
+    float F_lr = F_l - 0.5f * F_diff;
+    float tau_lf, tau_lr, tau_rf, tau_rr;
+    leg_kin_v3_forces(F_ll, F_sw, F_lr, F_sw,
+                      &tau_lf, &tau_lr, &tau_rf, &tau_rr);
+    out->ctrl[0] = tau_lf / RL_JUMP_LEG_GAIN;              /* lf */
+    out->ctrl[1] = tau_lr / RL_JUMP_LEG_GAIN;              /* lr */
+    out->ctrl[3] = tau_rf / RL_JUMP_LEG_GAIN;              /* rf */
+    out->ctrl[4] = tau_rr / RL_JUMP_LEG_GAIN;              /* rr */
     out->ctrl[2] = act[3] * RL_JUMP_WHEEL_CTRL;            /* 左轮 */
     out->ctrl[5] = act[4] * RL_JUMP_WHEEL_CTRL;            /* 右轮 */
 }
@@ -201,9 +204,9 @@ static void set_debug_fields(SensorState *s)
     s->rl_state = g_state;
     s->rl_act0 = g_act[0];
     s->rl_act1 = g_act[1];
-    /* 日志沿用旧列名: ext_delta=左轮动作, swing_delta=右轮动作 */
+    /* 日志沿用旧列名: ext_delta=左右差动作, swing_delta=右轮动作。 */
     s->rl_ext_delta = g_act[2];
-    s->rl_swing_delta = g_act[5];
+    s->rl_swing_delta = g_act[4];
     s->rl_obs_h = g_obs_h;
 }
 
@@ -235,8 +238,13 @@ void rl_jump_controller_update(SensorState *s, double dt, RlJumpCmd *out)
          * 轮子/俯仰仍由三环(base)稳住; 腿到位或超时后交给 RL。
          * 部署与训练一致: RL 统一从"最短腿"状态起跳。 */
         g_prep_t += dtf;
-        float L = 0.5f * (0.4f - (float)s->lf_pos - (float)s->lr_pos);
-        if (L >= RL_JUMP_PREP_L_DONE || g_prep_t >= RL_JUMP_PREP_TIMEOUT) {
+        float sw, L, R;
+        leg_kin_v3_forward((float)s->lf_pos, (float)s->lr_pos,
+                           (float)s->rf_pos, (float)s->rr_pos,
+                           &sw, &L, &R);
+        (void)sw;
+        float leg_len = 0.5f * (L + R);
+        if (leg_len <= RL_JUMP_PREP_L_DONE || g_prep_t >= RL_JUMP_PREP_TIMEOUT) {
             g_state = RL_JUMP_ACTIVE;
             g_t = 0.0f;
             g_prep_t = 0.0f;
@@ -255,7 +263,7 @@ void rl_jump_controller_update(SensorState *s, double dt, RlJumpCmd *out)
         float raw[RL_JUMP_N_OUT];
 
         build_obs(s, obs);
-        g_obs_h = obs[19];
+        g_obs_h = obs[18];
         if (g_obs_h > g_max_h) g_max_h = g_obs_h;
         rl_jump_net_forward(obs, raw);
         if (g_t < 0.02f) {

@@ -3,7 +3,7 @@
 
 架构: 三环负责稳定, RL 只做短窗口"跳跃爆发"(分阶段):
       - 训练前由真实 C 三环(ident_bridge)预热 1~1.5s, 稳定到部署状态。
-      - RL 接管固定 2s 爆发窗口, 动作用"虚拟坐标力矩":
+      - RL 接管固定 2s 爆发窗口, 动作用"虚拟坐标力":
           [腿长力 τ_L, 腿摆力 τ_sw, 左右腿长差 τ_diff, 左轮, 右轮]
         环境经运动学 Jᵀ 映射到 4 个腿主关节(不独立驱动关节,
         不破坏连杆约束), 轮子直接力矩。
@@ -14,9 +14,9 @@
       - 观测含"离地标志"(最后一维), 让策略明确知道当前阶段。
 
 动作(5维): [tau_L, tau_sw, tau_diff, lw_ctrl, rw_ctrl]  [-1,1]
-  - tau_L   : 腿长方向虚拟力矩 ±60 Nm (负=伸腿蹬地/起跳)
-  - tau_sw  : 腿摆方向虚拟力矩 ±40 Nm (负=向后摆)
-  - tau_diff: 左右腿长差虚拟力矩 ±40 Nm (roll 姿态)
+  - tau_L   : 腿长方向虚拟力 ±150 N
+  - tau_sw  : 腿摆方向虚拟力 ±60 N
+  - tau_diff: 左右腿长差虚拟力 ±60 N (roll 姿态)
   - 轮      : ctrl = a*10 (10:1 减速, 每轮 ±100 Nm 轮上扭矩)
   - 腿部分经运动学 Jᵀ 映射到 4 个主关节(不独立驱动关节, 不破坏连杆约束)
 
@@ -39,8 +39,8 @@
    27..32  执行器"电流"(电机侧力矩): lf, lr, lw, rf, rr, rw
    33      离地标志(0=接触地面, 1=空中), 分阶段控制的阶段信号
 
-初始姿态采用模型默认位(腿折叠, 轮子着地, 脚离地):
-lf=0, lr=0, rf=-0.1, rr=0(虚拟坐标 sw≈0.2, L≈0.2, R≈0.2) + z=0.08。
+初始姿态采用 v3 模型默认位(腿折叠, 轮子着地, 脚离地):
+4 个主关节使用 v3 中位, 虚拟坐标由 leg_v3_forward 计算, z=-0.025。
 零动作下自然稳定(2s 不倒), 是 RL 最容易学平衡/跳跃的起点;
 实测位(脚撑地, L≈-0.10)零动作 0.04s 即倒, 不适合做训练起点。
 部署侧 RL 接管前由 PREP 把腿收到脚离地, 与该起点一致。
@@ -58,14 +58,25 @@ from gymnasium import spaces
 
 
 ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-XML = os.path.join(ROOT, "model", "COD-2026RoboMaster-Balance.xml")
+XML = os.path.join(ROOT, "model", "v3", "COD-2026RoboMaster-Balance-v3.xml")
 
-SW_NOM = 0.23          # 名义腿摆(仅用于参考, 新策略直接出力矩, 不再用位置伺服)
 NOM_HEIGHT = 0.085     # 观测相对高度基准
-TAU_L_SCALE = 150.0    # 腿长虚拟力矩量程 Nm(降低起跳力度, 高度可控防落地翻)
-TAU_SW_SCALE = 60.0    # 腿摆虚拟力矩量程 Nm
-TAU_DIFF_SCALE = 60.0  # 左右腿长差虚拟力矩量程 Nm
+TAU_L_SCALE = 150.0    # 腿长虚拟力量程 N(降低起跳力度, 高度可控防落地翻)
+TAU_SW_SCALE = 60.0    # 腿摆虚拟力量程 N
+TAU_DIFF_SCALE = 60.0  # 左右腿长差虚拟力量程 N
 LEG_GAIN = 50.0        # 腿执行器 gainprm
+# v3 腿线性运动学, 与 control/balance/leg_kin_v3.h 保持一致。
+LEG_V3_SW_NOM = -0.01596
+LEG_V3_L_NOM = 0.08656
+LEG_V3_J_L0 = 0.069055
+LEG_V3_J_L1 = -0.070802
+LEG_V3_J_S0 = 0.049910
+LEG_V3_J_S1 = 0.056241
+LEG_V3_K_LA = 7.582279
+LEG_V3_K_LB = 9.545355
+LEG_V3_K_LC = -6.728685
+LEG_V3_K_LD = 9.309838
+IMU_BAKE_Q = np.array([0.70710678, 0.70710678, 0.0, 0.0])
 # 电流通道归一化量程(电机侧力矩 Nm): 腿 ±250, 轮 ±100
 OBS_CUR_SCALE = np.array([250.0, 250.0, 100.0, 250.0, 250.0, 100.0])
 BRIDGE = os.path.join(os.path.dirname(os.path.abspath(__file__)), "ident_bridge.so")
@@ -74,7 +85,76 @@ WARMUP_RANGE = (1.0, 1.5)   # 三环预热时长 s(只需稳定到平衡态,
                             #  训练速度大幅提升)
 EPISODE_S = 3.0             # RL 全程窗口时长 s(起跳+空中+落地+恢复)
 RETRACT_S = 0.25            # 收腿到最短的 leg_extend_manual 指令
-RETRACT_DONE_L = 0.057      # 部署实测最短腿 L(leg_extend_manual 0.25 物理极限)
+RETRACT_DONE_L = 0.085      # v3 当前手动收腿上限对应的接管腿长
+
+
+def leg_v3_forward(lf, lr, rf, rr):
+    sw_l = LEG_V3_SW_NOM + LEG_V3_J_S0 * lf + LEG_V3_J_S1 * lr
+    leg_l = LEG_V3_L_NOM + LEG_V3_J_L0 * lf + LEG_V3_J_L1 * lr
+    sw_r = LEG_V3_SW_NOM - LEG_V3_J_S0 * rf - LEG_V3_J_S1 * rr
+    leg_r = LEG_V3_L_NOM - LEG_V3_J_L0 * rf - LEG_V3_J_L1 * rr
+    return 0.5 * (sw_l + sw_r), leg_l, leg_r
+
+
+def leg_v3_inverse(sw, leg_l, leg_r):
+    sw_dev = sw - LEG_V3_SW_NOM
+    ext_l = leg_l - LEG_V3_L_NOM
+    ext_r = leg_r - LEG_V3_L_NOM
+    return np.array([
+        LEG_V3_K_LA * ext_l + LEG_V3_K_LB * sw_dev,
+        LEG_V3_K_LC * ext_l + LEG_V3_K_LD * sw_dev,
+        -LEG_V3_K_LA * ext_r - LEG_V3_K_LB * sw_dev,
+        -LEG_V3_K_LC * ext_r - LEG_V3_K_LD * sw_dev,
+    ])
+
+
+def leg_v3_forces(F_l, F_sw_l, F_r, F_sw_r):
+    return np.array([
+        LEG_V3_J_L0 * F_l + LEG_V3_J_S0 * F_sw_l,
+        LEG_V3_J_L1 * F_l + LEG_V3_J_S1 * F_sw_l,
+        -LEG_V3_J_L0 * F_r - LEG_V3_J_S0 * F_sw_r,
+        -LEG_V3_J_L1 * F_r - LEG_V3_J_S1 * F_sw_r,
+    ])
+
+
+def quat_mul(a, b):
+    aw, ax, ay, az = a
+    bw, bx, by, bz = b
+    return np.array([
+        aw * bw - ax * bx - ay * by - az * bz,
+        aw * bx + ax * bw + ay * bz - az * by,
+        aw * by - ax * bz + ay * bw + az * bx,
+        aw * bz + ax * by - ay * bx + az * bw,
+    ])
+
+
+def quat_from_euler_xyz(euler):
+    q = np.zeros(4)
+    mujoco.mju_euler2Quat(q, euler, 'xyz')
+    return q
+
+
+def quat_to_pitch_roll_yaw(q):
+    w, x, y, z = q
+    pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - x * z))))
+    roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
+    yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+    return pitch, roll, yaw
+
+
+def control_imu_from_data(d):
+    q_body = np.array(d.sensordata[0:4])
+    q_mount = np.array([IMU_BAKE_Q[0], -IMU_BAKE_Q[1], -IMU_BAKE_Q[2], -IMU_BAKE_Q[3]])
+    q_ctrl = quat_mul(q_body, q_mount)
+    gyro_body = d.sensordata[4:7]
+    acc_body = d.sensordata[7:10]
+    gyro_ctrl = np.array([gyro_body[0], -gyro_body[2], gyro_body[1]])
+    acc_ctrl = np.array([acc_body[0], -acc_body[2], acc_body[1]])
+    return q_ctrl, gyro_ctrl, acc_ctrl
+
+
+def body_quat_from_control_euler(euler):
+    return quat_mul(quat_from_euler_xyz(euler), IMU_BAKE_Q)
 
 
 class IdentFrame(ctypes.Structure):
@@ -105,7 +185,8 @@ class IdentFrame(ctypes.Structure):
 class JumpRLEnv(gym.Env):
     metadata = {"render_modes": []}
 
-    def __init__(self, timestep=0.001, episode_steps=None, min_height=0.15):
+    def __init__(self, timestep=0.001, episode_steps=None, min_height=0.15,
+                 bridge_path=None):
         super().__init__()
         self.model = mujoco.MjModel.from_xml_path(XML)
         self.model.opt.timestep = timestep
@@ -150,8 +231,9 @@ class JumpRLEnv(gym.Env):
         self._home_qpos = self.data.qpos.copy()
         # 三环预热桥(与部署同一套 C 三环+腿伺服+轮混控)
         self._bridge = None
-        if os.path.exists(BRIDGE):
-            self._bridge = ctypes.CDLL(BRIDGE)
+        bridge_path = BRIDGE if bridge_path is None else os.fspath(bridge_path)
+        if os.path.exists(bridge_path):
+            self._bridge = ctypes.CDLL(bridge_path)
             self._bridge.ident_init()
             self._bridge.ident_reset()
             self._bridge.ident_robot_step.argtypes = [
@@ -168,19 +250,16 @@ class JumpRLEnv(gym.Env):
         d = self.data
         if not hasattr(self, "_warm_steps"):
             self._warm_steps = 0
-        quat = d.sensordata[0:4]
-        w, x, y, z = quat
-        pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - x * z))))
-        roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
-        yaw = math.atan2(2.0 * (w * z + x * y), 1.0 - 2.0 * (y * y + z * z))
+        quat, gyro, acc = control_imu_from_data(d)
+        pitch, roll, yaw = quat_to_pitch_roll_yaw(quat)
         return IdentFrame(
-            pitch=pitch, pitch_rate=float(d.sensordata[5]),
-            roll=roll, roll_rate=float(d.sensordata[4]),
+            pitch=pitch, pitch_rate=float(gyro[1]),
+            roll=roll, roll_rate=float(gyro[0]),
             left_wheel_vel=float(d.qvel[self.lw_dof]),
             right_wheel_vel=float(d.qvel[self.rw_dof]),
-            acc_mag=float(np.sqrt(d.sensordata[7] ** 2 + d.sensordata[9] ** 2)),
-            acc_x=float(d.sensordata[7]), acc_z=float(d.sensordata[9]),
-            yaw=yaw, yaw_rate=float(d.sensordata[6]),
+            acc_mag=float(np.sqrt(acc[0] ** 2 + acc[2] ** 2)),
+            acc_x=float(acc[0]), acc_z=float(acc[2]),
+            yaw=yaw, yaw_rate=float(gyro[2]),
             left_wheel_pos=float(d.qpos[self.lw_qpos]),
             right_wheel_pos=float(d.qpos[self.rw_qpos]),
             lf_pos=float(d.qpos[self.leg_qpos[0]]), lr_pos=float(d.qpos[self.leg_qpos[1]]),
@@ -191,8 +270,8 @@ class JumpRLEnv(gym.Env):
             right_wheel_tau=float(d.actuator_force[5] * 10.0),
             lf_vel=float(d.qvel[self.leg_dof[0]]), lr_vel=float(d.qvel[self.leg_dof[1]]),
             rf_vel=float(d.qvel[self.leg_dof[2]]), rr_vel=float(d.qvel[self.leg_dof[3]]),
-            acc_y=float(d.sensordata[8]),
-            quat=(ctypes.c_double * 4)(*d.sensordata[0:4]),
+            acc_y=float(acc[1]),
+            quat=(ctypes.c_double * 4)(*quat),
             body_pos=(ctypes.c_double * 3)(*d.qpos[0:3]),
             body_vel=(ctypes.c_double * 3)(*d.qvel[0:3]),
             sim_time=self._warm_steps * self.model.opt.timestep,
@@ -216,9 +295,7 @@ class JumpRLEnv(gym.Env):
         d = self.data
         d.qpos[2] = r.uniform(0.07, 0.10)                 # 机体高度
         euler = r.uniform(-0.06, 0.06, 3)                  # 姿态扰动(含偏航, ±3.5°)
-        q = np.zeros(4)
-        mujoco.mju_euler2Quat(q, euler, 'xyz')
-        d.qpos[3:7] = q
+        d.qpos[3:7] = body_quat_from_control_euler(euler)
         d.qpos[0] = r.uniform(-0.5, 0.5)                   # 世界位置 x,y(漂移)
         d.qpos[1] = r.uniform(-0.5, 0.5)
         # 腿位: 围绕默认位(脚离地/轮着地)小扰动, L∈[0.12,0.28]
@@ -236,30 +313,28 @@ class JumpRLEnv(gym.Env):
         mujoco.mj_forward(self.model, d)
 
     def _setup_initial(self):
-        """模型默认位(腿折叠/轮着地) + z=0.08 + 水平。"""
+        """v3 中位腿 + 轮着地高度 + 控制系水平姿态。"""
         d = self.data
         d.qpos[:] = self._home_qpos
-        d.qpos[2] = 0.08
-        d.qpos[3:7] = [1.0, 0.0, 0.0, 0.0]       # 水平姿态
+        d.qpos[2] = -0.025
+        d.qpos[3:7] = IMU_BAKE_Q                  # v3 水平姿态
+        joints = [0.2, -0.2, -0.2, 0.2]
+        for adr, v in zip(self.leg_qpos, joints):
+            d.qpos[adr] = v
         d.qvel[:] = 0.0
         d.ctrl[:] = 0.0
         mujoco.mj_forward(self.model, d)
 
     def _get_obs(self):
         d = self.data
-        quat = d.sensordata[0:4]
-        w, x, y, z = quat
-        pitch = math.asin(max(-1.0, min(1.0, 2.0 * (w * y - x * z))))
-        roll = math.atan2(2.0 * (w * x + y * z), 1.0 - 2.0 * (x * x + y * y))
-        angvel = d.qvel[3:6]
-        # 关节电机 -> 腿长/腿摆: 4 个主关节角合成虚拟坐标
+        quat, gyro, _acc = control_imu_from_data(d)
+        pitch, roll, _yaw = quat_to_pitch_roll_yaw(quat)
+        # 关节电机 -> 腿长/腿摆: 与 C 侧 leg_kin_v3_forward 一致。
         lf, lr, rf, rr = (d.qpos[self.leg_qpos[i]] for i in range(4))
-        sw = 0.25 * ((lf - lr + 0.4) + (0.3 - rf + rr))
-        leg_l = 0.5 * (0.4 - lf - lr)
-        leg_r = 0.5 * (rf + rr + 0.5)
+        sw, leg_l, leg_r = leg_v3_forward(lf, lr, rf, rr)
         return np.array([
             pitch, roll,
-            angvel[1], angvel[0],                      # pitch_rate, roll_rate
+            gyro[1], gyro[0],                          # pitch_rate, roll_rate
             sw, leg_l, leg_r,                           # 腿虚拟坐标(运动学已告诉模型)
             d.qvel[self.leg_dof[0]], d.qvel[self.leg_dof[1]],
             d.qvel[self.leg_dof[2]], d.qvel[self.leg_dof[3]],
@@ -284,7 +359,7 @@ class JumpRLEnv(gym.Env):
 
     def _step_ctrl(self, action):
         """混合控制一步:
-        - 腿: RL 输出虚拟坐标力矩(腿长/腿摆/左右差), 经运动学 Jᵀ 映射到
+        - 腿: RL 输出虚拟坐标力(腿长/腿摆/左右差), 经运动学 Jᵀ 映射到
           4 个主关节(不独立驱动关节, 不破坏连杆约束)。
         - 轮子分阶段:
             地面接触: 由真实三环(ident_robot_step)稳住, 防止起跳侧翻,
@@ -309,17 +384,12 @@ class JumpRLEnv(gym.Env):
             aux_diff = -gain * obs_pre[17] - 0.3 * obs_pre[3]
             a[2] = np.clip(a[2] + aux_diff / TAU_DIFF_SCALE, -1.0, 1.0)
         self._prev_airborne = airborne
-        tau_L = a[0] * TAU_L_SCALE
-        tau_sw = a[1] * TAU_SW_SCALE
-        tau_diff = a[2] * TAU_DIFF_SCALE
-        tau_Ll = tau_L + 0.5 * tau_diff
-        tau_Lr = tau_L - 0.5 * tau_diff
-        leg_ctrl = np.array([
-            (tau_sw - tau_Ll) / LEG_GAIN,     # lf
-            (-tau_sw - tau_Ll) / LEG_GAIN,    # lr
-            (-tau_sw + tau_Lr) / LEG_GAIN,    # rf
-            (tau_sw + tau_Lr) / LEG_GAIN,     # rr
-        ])
+        F_L = a[0] * TAU_L_SCALE
+        F_sw = a[1] * TAU_SW_SCALE
+        F_diff = a[2] * TAU_DIFF_SCALE
+        F_Ll = F_L + 0.5 * F_diff
+        F_Lr = F_L - 0.5 * F_diff
+        leg_ctrl = leg_v3_forces(F_Ll, F_sw, F_Lr, F_sw) / LEG_GAIN
         if airborne:
             # 空中: 轮子对姿态几乎无作用(角动量守恒), 固定为 0,
             # 姿态轨迹由起跳瞬间的规划决定, 不让 RL 在空中乱控添乱。
@@ -425,12 +495,11 @@ class JumpRLEnv(gym.Env):
             self._randomize_takeover()
             # 收腿到最短: 直接设腿关节到最短位(用户指定: 初始腿长不用管),
             # 避免"三环物理收腿"在漂移注入后不稳定翻车。
-            # 部署实测最短腿: L≈0.057, R≈0.106, sw≈0.23 -> 4 主关节
-            sw = 0.23
+            # 当前部署接管腿长: L≈0.085。用 v3 反解写入 4 个主关节。
+            sw = LEG_V3_SW_NOM
             leg_l = RETRACT_DONE_L
-            leg_r = 0.106
-            joints = np.array([sw - leg_l, 0.4 - sw - leg_l,
-                               -0.1 - sw + leg_r, -0.4 + sw + leg_r])
+            leg_r = RETRACT_DONE_L
+            joints = leg_v3_inverse(sw, leg_l, leg_r)
             for adr, v in zip(self.leg_qpos, joints):
                 self.data.qpos[adr] = v
             mujoco.mj_forward(self.model, self.data)

@@ -25,6 +25,30 @@
 /* 轮半径，必须和 MJCF 轮几何半径一致(v3 轮径 86mm)；改错会让轮速/里程计整体比例错误。 */
 #define WHEEL_RADIUS 0.043f
 
+/* v3 wheel mesh center separation and IMU offset in the control frame, m. */
+#define WHEEL_TRACK 0.272275f
+#define IMU_OFFSET_Y (-0.020f)
+
+#ifndef LEG_ROLL_ALLOCATION_ENABLE
+#define LEG_ROLL_ALLOCATION_ENABLE 1
+#endif
+#ifndef LEG_ROLL_HEIGHT_RATE
+#define LEG_ROLL_HEIGHT_RATE 0.12f /* m/s, create differential travel */
+#endif
+#ifndef LEG_ROLL_HEIGHT_RESTORE_RATE
+#define LEG_ROLL_HEIGHT_RESTORE_RATE 0.020f /* m/s, restore requested height */
+#endif
+
+/* Wheel-side viscous drag, matching each v3 MJCF wheel joint (Nm/(rad/s)). */
+#ifndef WHEEL_JOINT_DAMPING
+#if MODEL_V3
+#define WHEEL_JOINT_DAMPING 0.05f
+#else
+#define WHEEL_JOINT_DAMPING 0.0f
+#endif
+#endif
+#define WHEEL_YAW_DRAG_GAIN (WHEEL_JOINT_DAMPING * 0.5f * WHEEL_TRACK / WHEEL_RADIUS)
+
 /* 轮毂减速比(电机:轮)。必须和 MJCF 轮执行器 gear 一致(当前 10)。
  * 轮上扭矩 = 减速比 * 电机扭矩；电机转速 = 减速比 * 轮转速。
  * 电机转子惯量/阻尼按 N^2 反射到轮轴，已写入 MJCF 轮关节 armature/damping。 */
@@ -65,6 +89,72 @@
 #ifndef MANUAL_LEG_EXTEND_ENABLE
 #define MANUAL_LEG_EXTEND_ENABLE 1
 #endif
+#ifndef SHORT_LEG_MAX
+/* 短腿段阈值, 单位 m。L<该值时启用下面这组【短腿专用参数】(实测短腿端
+ * 对"全局参数"(腿伺服刚度/roll 幅值)不敏感, 说明需要的是另一套控制策略:
+ *   - 腿部动作放慢(腿长长伺服在深屈位形的横向泄漏与动作速度强相关),
+ *   - 允许更大倾角让轮扭矩有权限对抗漂移(长腿端 B 降级已验证: 允许倾角
+ *     换轮扭矩是有效的)。 */
+#define SHORT_LEG_MAX 0.098f
+#endif
+#ifndef SHORT_LEG_SW_FREEZE_FULL
+/* 实测腿长到 0.055m 前完成中位锁定，深屈端不再摆腿。 */
+#define SHORT_LEG_SW_FREEZE_FULL 0.055f
+#endif
+#ifndef SHORT_LEG_SW_FREEZE_RELEASE
+/* 默认最短可用腿长约 0.071m；在它以下才开始交接。 */
+#define SHORT_LEG_SW_FREEZE_RELEASE 0.069f
+#endif
+#ifndef SHORT_LEG_SW_CENTER
+/* v3 腿摆是轮轴相对机体的水平偏移；0 表示几何中位。 */
+#define SHORT_LEG_SW_CENTER 0.0f
+#endif
+#ifndef SHORT_LEG_TILT_V_KP
+#define SHORT_LEG_TILT_V_KP 0.020f
+#endif
+#ifndef SHORT_LEG_TILT_POS_V_KP
+#define SHORT_LEG_TILT_POS_V_KP 0.35f
+#endif
+#ifndef SHORT_LEG_TILT_SIGN
+#define SHORT_LEG_TILT_SIGN 1.0f
+#endif
+#ifndef SHORT_LEG_EXT_STEP_SCALE
+/* 短腿段腿长变化率缩放(越小越慢)。 */
+#define SHORT_LEG_EXT_STEP_SCALE 1.00f  /* 实测 0.35 更差, 中性=关闭 */
+#endif
+#ifndef SHORT_LEG_TILT_MAX
+/* 极短腿目标倾角限幅约 1.1 度。 */
+#define SHORT_LEG_TILT_MAX 0.020f
+#endif
+
+#ifndef SHORT_LEG_TILT_GAIN_SCALE
+/* 短腿段倾角(刹车)增益缩放: 减小幅度, 避免"刹车摆过头"造成反向漂移。
+ * 实测短腿端倾角幅值越大越差(0.105 -> 漂 4.5m/s, pitch 39deg)。 */
+#define SHORT_LEG_TILT_GAIN_SCALE 0.25f
+#endif
+
+#ifndef SHORT_LEG_BALANCE_GAIN_SCALE
+/* 短腿时俯仰平衡 P/D 增益缩放；其余腿长不变。 */
+#define SHORT_LEG_BALANCE_GAIN_SCALE 0.80f
+#endif
+
+#ifndef SHORT_LEG_VEL_BRAKE
+/* 短腿降级控制的轮速刹车增益，单位 Nm/(m/s)。
+ * 短腿位形的共模轮扭矩方向与普通腿长相反，使用独立的扭矩符号。 */
+#define SHORT_LEG_VEL_BRAKE 6.0f
+#endif
+
+#ifndef MANUAL_LEG_EXTEND_SHORT_MAX
+/* E/Q 向"更矮"方向的限幅, 单位 m(ext 正=收腿/降低)。
+ * 实测腿长 L ≈ 0.1105 - 0.96*ext: 0.016 对应 L≈0.095m。
+ * 边界实测: L=0.091m 静止漂移 0.00m/s(可用); L=0.088m 仍漂 +2.72m/s
+ * 且按陀螺会侧翻(roll 180°) —— 短腿端是【整机】可控性下界(前后与
+ * roll 一起失效), 不是单摆的稳定性问题(解析模型显示短腿 g/h 更小,
+ * 摆本身更好控)。取 0.016 留出边界余量。
+ * 长腿方向不在这里限制 —— 那里姿态可控, 由"轮扭矩+允许倾角"的降级策略兜。 */
+#define MANUAL_LEG_EXTEND_SHORT_MAX 0.040f  /* 暂时放开: 短腿端改由"横向力补偿"根治, 不再靠限幅 */
+#endif
+
 #ifndef MANUAL_LEG_EXTEND_MAX
 #define MANUAL_LEG_EXTEND_MAX 0.040f
 #endif
